@@ -109,11 +109,15 @@ class TopicTimelineSheet extends StatefulWidget {
   /// 话题标题
   final String? title;
 
+  /// 状态栏高度（从父 context 传入，避免 modal 内部 padding 被清零）
+  final double topPadding;
+
   const TopicTimelineSheet({
     super.key,
     required this.currentIndex,
     required this.stream,
     required this.onJumpToPostId,
+    required this.topPadding,
     this.title,
   });
 
@@ -124,6 +128,9 @@ class TopicTimelineSheet extends StatefulWidget {
 class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
   late int _selectedIndex;
   bool _isDragging = false;
+  bool _isEditing = false;
+  late TextEditingController _textController;
+  final FocusNode _focusNode = FocusNode();
 
   int get _totalCount => widget.stream.length;
 
@@ -131,6 +138,51 @@ class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
   void initState() {
     super.initState();
     _selectedIndex = widget.currentIndex.clamp(1, _totalCount);
+    _textController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _enterEditMode() {
+    setState(() {
+      _isEditing = true;
+      _textController.text = '$_selectedIndex';
+      _textController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _textController.text.length,
+      );
+    });
+    // 延迟请求焦点，确保 TextField 已构建
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNode.requestFocus();
+    });
+  }
+
+  void _commitEdit() {
+    final value = int.tryParse(_textController.text);
+    if (value != null && value >= 1 && value <= _totalCount) {
+      if (value != _selectedIndex) {
+        HapticFeedback.selectionClick();
+      }
+      setState(() {
+        _selectedIndex = value;
+        _isEditing = false;
+      });
+    } else {
+      // 无效输入，恢复原值
+      setState(() => _isEditing = false);
+    }
+    _focusNode.unfocus();
+  }
+
+  void _cancelEdit() {
+    setState(() => _isEditing = false);
+    _focusNode.unfocus();
   }
 
   void _updateIndex(double percent) {
@@ -142,6 +194,7 @@ class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
   }
 
   void _handleDragStart(DragStartDetails details, BoxConstraints constraints) {
+    if (_isEditing) _cancelEdit();
     setState(() => _isDragging = true);
     _updateIndexFromOffset(details.localPosition.dy, constraints.maxHeight);
   }
@@ -155,6 +208,7 @@ class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
   }
 
   void _handleTap(TapUpDetails details, BoxConstraints constraints) {
+    if (_isEditing) _cancelEdit();
     _updateIndexFromOffset(details.localPosition.dy, constraints.maxHeight);
   }
 
@@ -181,13 +235,23 @@ class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
         ? (_selectedIndex - 1) / (_totalCount - 1)
         : 0.0;
 
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.6,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
+    final mediaQuery = MediaQuery.of(context);
+    final bottomInset = mediaQuery.viewInsets.bottom;
+    final screenHeight = mediaQuery.size.height;
+    // 内容区高度：键盘弹出时收缩，确保不超过屏幕顶部状态栏
+    // topPadding 从父 context 传入，因为 showModalBottomSheet 内部会清零 padding.top
+    final contentHeight = (screenHeight * 0.6)
+        .clamp(0.0, screenHeight - widget.topPadding - bottomInset);
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        height: contentHeight,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: SafeArea(
         child: Column(
           children: [
             const SizedBox(height: 12),
@@ -230,42 +294,129 @@ class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                '$_selectedIndex',
-                                style: theme.textTheme.displayMedium?.copyWith(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w900,
+                          if (_isEditing)
+                            // 输入模式
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                SizedBox(
+                                  width: 90,
+                                  child: TextField(
+                                    controller: _textController,
+                                    focusNode: _focusNode,
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    style: theme.textTheme.displayMedium?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                    decoration: InputDecoration(
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                                      border: UnderlineInputBorder(
+                                        borderSide: BorderSide(
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      ),
+                                      focusedBorder: UnderlineInputBorder(
+                                        borderSide: BorderSide(
+                                          color: theme.colorScheme.primary,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                    onSubmitted: (_) => _commitEdit(),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '/ $_totalCount',
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha:0.4),
-                                  fontWeight: FontWeight.w500,
+                                const SizedBox(width: 8),
+                                Text(
+                                  '/ $_totalCount',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha:0.4),
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
+                              ],
+                            )
+                          else
+                            // 显示模式：点击进入输入
+                            GestureDetector(
+                              onTap: _enterEditMode,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Text(
+                                    '$_selectedIndex',
+                                    style: theme.textTheme.displayMedium?.copyWith(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '/ $_totalCount',
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant.withValues(alpha:0.4),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Icon(
+                                    Icons.edit_outlined,
+                                    size: 16,
+                                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha:0.4),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
+                            ),
                           const SizedBox(height: 16),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primaryContainer.withValues(alpha:0.4),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              _selectedIndex == widget.currentIndex ? '正位于此' : '准备跳转',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onPrimaryContainer,
-                                fontWeight: FontWeight.bold,
+                          if (_isEditing)
+                            Row(
+                              children: [
+                                SizedBox(
+                                  height: 32,
+                                  child: TextButton(
+                                    onPressed: _cancelEdit,
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    child: const Text('取消'),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                SizedBox(
+                                  height: 32,
+                                  child: FilledButton.tonal(
+                                    onPressed: _commitEdit,
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    child: const Text('确定'),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primaryContainer.withValues(alpha:0.4),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _selectedIndex == widget.currentIndex ? '正位于此' : '准备跳转',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -376,6 +527,7 @@ class _TopicTimelineSheetState extends State<TopicTimelineSheet> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -431,6 +583,8 @@ Future<void> showTopicTimelineSheet({
   required void Function(int postId) onJumpToPostId,
   String? title,
 }) {
+  // 在 modal 外部获取状态栏高度，因为 showModalBottomSheet 会清零 padding.top
+  final topPadding = MediaQuery.of(context).padding.top;
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -440,6 +594,7 @@ Future<void> showTopicTimelineSheet({
       stream: stream,
       onJumpToPostId: onJumpToPostId,
       title: title,
+      topPadding: topPadding,
     ),
   );
 }
