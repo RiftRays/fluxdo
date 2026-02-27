@@ -386,7 +386,10 @@ class ExtendedImageGestureState extends State<ExtendedImageGesture>
       final Offset totalDelta = details.focalPointDelta;
       bool updateGesture = false;
       if (!extendedImageSlidePageState!.isSliding) {
-        if (totalDelta.dx != 0 &&
+        final slideAxis = extendedImageSlidePageState!.widget.slideAxis;
+        // 水平方向主导：仅当 slideAxis 包含水平方向时才触发 slide
+        if (slideAxis != SlideAxis.vertical &&
+            totalDelta.dx != 0 &&
             totalDelta.dx.abs().greaterThan(totalDelta.dy.abs())) {
           if (_gestureDetails!.computeHorizontalBoundary) {
             if (totalDelta.dx > 0) {
@@ -398,7 +401,9 @@ class ExtendedImageGestureState extends State<ExtendedImageGesture>
             updateGesture = true;
           }
         }
-        if (totalDelta.dy != 0 &&
+        // 垂直方向主导：仅当 slideAxis 包含垂直方向时才触发 slide
+        if (slideAxis != SlideAxis.horizontal &&
+            totalDelta.dy != 0 &&
             totalDelta.dy.abs().greaterThan(totalDelta.dx.abs())) {
           if (_gestureDetails!.computeVerticalBoundary) {
             if (totalDelta.dy < 0) {
