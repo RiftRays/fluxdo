@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../../../../services/discourse_cache_manager.dart';
 import '../image_utils.dart';
@@ -44,19 +46,88 @@ class _ImageCarouselState extends State<_ImageCarousel> {
   /// 轮播高度
   static const double _carouselHeight = 300.0;
 
+  /// 预加载范围：当前页 ± _preloadRange
+  static const int _preloadRange = 1;
+
   late final PageController _pageController;
   int _currentIndex = 0;
+
+  /// 已解析的 URL 缓存 (index -> resolvedUrl)
+  final Map<int, String> _resolvedUrls = {};
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    _initResolvedUrls();
+    _resolveUploadUrls();
   }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// 初始化：将非 upload:// 的 URL 和已缓存的 upload:// URL 直接填入
+  void _initResolvedUrls() {
+    for (int i = 0; i < widget.images.length; i++) {
+      final src = widget.images[i].src;
+      if (DiscourseImageUtils.isUploadUrl(src)) {
+        if (DiscourseImageUtils.isUploadUrlCached(src)) {
+          final cached = DiscourseImageUtils.getCachedUploadUrl(src);
+          if (cached != null) _resolvedUrls[i] = cached;
+        }
+      } else {
+        _resolvedUrls[i] = src;
+      }
+    }
+  }
+
+  /// 异步批量解析 upload:// 短链接，优先解析当前页附近的
+  Future<void> _resolveUploadUrls() async {
+    // 收集需要解析的索引
+    final pending = <int>[];
+    for (int i = 0; i < widget.images.length; i++) {
+      if (!_resolvedUrls.containsKey(i)) {
+        pending.add(i);
+      }
+    }
+    if (pending.isEmpty) {
+      // 所有 URL 已就绪，预加载相邻图片
+      _preloadAdjacent(_currentIndex);
+      return;
+    }
+
+    // 按距当前页的距离排序，优先解析近的
+    pending.sort((a, b) =>
+        (a - _currentIndex).abs().compareTo((b - _currentIndex).abs()));
+
+    for (final i in pending) {
+      if (!mounted) return;
+      final src = widget.images[i].src;
+      final resolved = await DiscourseImageUtils.resolveUploadUrl(src);
+      if (resolved != null && mounted) {
+        setState(() => _resolvedUrls[i] = resolved);
+        // 当前页或相邻页解析完成后，触发预加载
+        if ((i - _currentIndex).abs() <= _preloadRange) {
+          _preloadAdjacent(_currentIndex);
+        }
+      }
+    }
+  }
+
+  /// 预加载当前页 ± _preloadRange 的图片到磁盘缓存
+  void _preloadAdjacent(int centerIndex) {
+    final cacheManager = DiscourseCacheManager();
+    final start = math.max(0, centerIndex - _preloadRange);
+    final end = math.min(widget.images.length - 1, centerIndex + _preloadRange);
+    for (int i = start; i <= end; i++) {
+      final url = _resolvedUrls[i];
+      if (url != null) {
+        cacheManager.preloadImage(url);
+      }
+    }
   }
 
   bool get _isSingle => widget.images.length < 2;
@@ -69,6 +140,11 @@ class _ImageCarouselState extends State<_ImageCarousel> {
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
+  }
+
+  void _onPageChanged(int index) {
+    setState(() => _currentIndex = index);
+    _preloadAdjacent(index);
   }
 
   void _openViewer(BuildContext context, int imageIndex, String resolvedFullUrl) {
@@ -126,11 +202,17 @@ class _ImageCarouselState extends State<_ImageCarousel> {
                 PageView.builder(
                   controller: _pageController,
                   itemCount: widget.images.length,
-                  onPageChanged: (index) {
-                    setState(() => _currentIndex = index);
-                  },
+                  onPageChanged: _onPageChanged,
                   itemBuilder: (context, index) {
-                    return _buildSlide(context, index);
+                    return _CarouselSlide(
+                      index: index,
+                      resolvedUrl: _resolvedUrls[index],
+                      imageData: widget.images[index],
+                      galleryInfo: widget.galleryInfo,
+                      carouselHeight: _carouselHeight,
+                      theme: widget.theme,
+                      onTap: _openViewer,
+                    );
                   },
                 ),
                 // 导航按钮（仅多张图片时显示）
@@ -188,57 +270,74 @@ class _ImageCarouselState extends State<_ImageCarousel> {
       ],
     );
   }
+}
 
-  /// 构建单张幻灯片
-  Widget _buildSlide(BuildContext context, int index) {
-    final imageData = widget.images[index];
+/// 单张轮播幻灯片（带 KeepAlive，避免滑回时重新加载）
+class _CarouselSlide extends StatefulWidget {
+  final int index;
+  final String? resolvedUrl;
+  final GridImageData imageData;
+  final GalleryInfo galleryInfo;
+  final double carouselHeight;
+  final ThemeData theme;
+  final void Function(BuildContext context, int imageIndex, String resolvedFullUrl) onTap;
 
-    // 处理 upload:// 短链接
-    if (DiscourseImageUtils.isUploadUrl(imageData.src)) {
-      if (DiscourseImageUtils.isUploadUrlCached(imageData.src)) {
-        final resolvedUrl =
-            DiscourseImageUtils.getCachedUploadUrl(imageData.src);
-        if (resolvedUrl != null) {
-          return _buildSlideImage(context, index, resolvedUrl);
-        }
-        return _buildErrorSlide();
-      }
+  const _CarouselSlide({
+    required this.index,
+    required this.resolvedUrl,
+    required this.imageData,
+    required this.galleryInfo,
+    required this.carouselHeight,
+    required this.theme,
+    required this.onTap,
+  });
 
-      return FutureBuilder<String?>(
-        future: DiscourseImageUtils.resolveUploadUrl(imageData.src),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return _buildLoadingSlide();
-          }
-          if (snapshot.data == null) return _buildErrorSlide();
-          return _buildSlideImage(context, index, snapshot.data!);
-        },
+  @override
+  State<_CarouselSlide> createState() => _CarouselSlideState();
+}
+
+class _CarouselSlideState extends State<_CarouselSlide>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    final url = widget.resolvedUrl;
+    if (url == null) {
+      // URL 还在解析中
+      return const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
       );
     }
 
-    return _buildSlideImage(context, index, imageData.src);
-  }
-
-  /// 构建幻灯片图片（含 Hero 动画和点击查看）
-  Widget _buildSlideImage(BuildContext context, int index, String displayUrl) {
-    final imageData = widget.images[index];
-    final globalIndex = widget.galleryInfo.findIndex(imageData.src)
-        ?? widget.galleryInfo.findIndex(imageData.fullSrc)
+    final globalIndex = widget.galleryInfo.findIndex(widget.imageData.src)
+        ?? widget.galleryInfo.findIndex(widget.imageData.fullSrc)
         ?? -1;
     final heroTags = widget.galleryInfo.heroTags;
     final heroTag = globalIndex >= 0 && globalIndex < heroTags.length
         ? heroTags[globalIndex]
-        : 'carousel_${imageData.src.hashCode}';
+        : 'carousel_${widget.imageData.src.hashCode}';
+
+    // 限制解码尺寸：轮播高度 300 * dpr，避免解码超大原图
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final maxHeight = (widget.carouselHeight * dpr).toInt();
 
     return GestureDetector(
-      onTap: () => _openViewer(context, index, displayUrl),
+      onTap: () => widget.onTap(context, widget.index, url),
       child: Hero(
         tag: heroTag,
         child: Image(
-          image: discourseImageProvider(displayUrl),
+          image: discourseImageProvider(url, maxHeight: maxHeight),
           fit: BoxFit.contain,
           width: double.infinity,
-          height: _carouselHeight,
+          height: widget.carouselHeight,
           loadingBuilder: (context, child, loadingProgress) {
             if (loadingProgress == null) return child;
             return Center(
@@ -264,25 +363,6 @@ class _ImageCarouselState extends State<_ImageCarousel> {
             );
           },
         ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingSlide() {
-    return const Center(
-      child: SizedBox(
-        width: 24,
-        height: 24,
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
-    );
-  }
-
-  Widget _buildErrorSlide() {
-    return Center(
-      child: Icon(
-        Icons.broken_image,
-        color: widget.theme.colorScheme.outline,
       ),
     );
   }

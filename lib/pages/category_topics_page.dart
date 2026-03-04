@@ -91,6 +91,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage> {
         categorySlug: widget.category.slug,
         parentCategorySlug: _parentSlug,
         tags: _selectedTags.isNotEmpty ? _selectedTags : null,
+        period: _currentSort.period,
         page: 0,
       );
 
@@ -126,6 +127,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage> {
         categorySlug: widget.category.slug,
         parentCategorySlug: _parentSlug,
         tags: _selectedTags.isNotEmpty ? _selectedTags : null,
+        period: _currentSort.period,
         page: 0,
       );
 
@@ -157,6 +159,7 @@ class _CategoryTopicsPageState extends ConsumerState<CategoryTopicsPage> {
         categorySlug: widget.category.slug,
         parentCategorySlug: _parentSlug,
         tags: _selectedTags.isNotEmpty ? _selectedTags : null,
+        period: _currentSort.period,
         page: nextPage,
       );
 

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import '../../../../services/discourse_cache_manager.dart';
 import '../image_utils.dart';
+import '../../lazy_load_scope.dart';
 import 'image_carousel_builder.dart';
 
 /// 构建 Discourse 图片网格 (d-image-grid)
@@ -127,8 +129,8 @@ List<GridImageData> extractGridImages(dynamic element) {
   return images;
 }
 
-/// 网格图片瓦片
-class _GridImageTile extends StatelessWidget {
+/// 网格图片瓦片（懒加载：进入视口才开始下载图片）
+class _GridImageTile extends StatefulWidget {
   final ThemeData theme;
   final GridImageData imageData;
   final double columnWidth;
@@ -152,26 +154,78 @@ class _GridImageTile extends StatelessWidget {
   });
 
   @override
+  State<_GridImageTile> createState() => _GridImageTileState();
+}
+
+class _GridImageTileState extends State<_GridImageTile> {
+  bool _shouldLoad = false;
+  bool _initialized = false;
+
+  String get _cacheKey => 'grid_tile_${widget.heroTag}';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      // 检查 LazyLoadScope 缓存，避免重建时重复走 VisibilityDetector
+      if (LazyLoadScope.isLoaded(context, _cacheKey)) {
+        _shouldLoad = true;
+      }
+    }
+  }
+
+  void _triggerLoad() {
+    if (!_shouldLoad) {
+      LazyLoadScope.markLoaded(context, _cacheKey);
+      setState(() => _shouldLoad = true);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     // 计算显示高度，保持宽高比，限制最大高度
     double displayHeight;
-    if (imageData.width != null && imageData.height != null && imageData.width! > 0) {
-      final aspectRatio = imageData.height! / imageData.width!;
-      displayHeight = columnWidth * aspectRatio;
+    if (widget.imageData.width != null && widget.imageData.height != null && widget.imageData.width! > 0) {
+      final aspectRatio = widget.imageData.height! / widget.imageData.width!;
+      displayHeight = widget.columnWidth * aspectRatio;
       displayHeight = displayHeight.clamp(80.0, 300.0);
     } else {
-      displayHeight = columnWidth * 0.75;
+      displayHeight = widget.columnWidth * 0.75;
     }
 
+    // 未进入视口：显示占位符 + VisibilityDetector
+    if (!_shouldLoad) {
+      return VisibilityDetector(
+        key: Key('grid-lazy-${widget.heroTag}'),
+        onVisibilityChanged: (info) {
+          if (!_shouldLoad && info.visibleFraction > 0) {
+            _triggerLoad();
+          }
+        },
+        child: SizedBox(
+          width: widget.columnWidth,
+          height: displayHeight,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              color: widget.theme.colorScheme.surfaceContainerHighest,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // 已进入视口：加载图片
     // 检查是否是 upload:// 短链接
-    if (!DiscourseImageUtils.isUploadUrl(imageData.src)) {
+    if (!DiscourseImageUtils.isUploadUrl(widget.imageData.src)) {
       // 普通 URL，直接渲染
-      return _buildImageWidget(context, imageData.src, imageData.fullSrc, displayHeight);
+      return _buildImageWidget(context, widget.imageData.src, widget.imageData.fullSrc, displayHeight);
     }
 
     // upload:// 短链接：检查缓存
-    if (DiscourseImageUtils.isUploadUrlCached(imageData.src)) {
-      final resolvedUrl = DiscourseImageUtils.getCachedUploadUrl(imageData.src);
+    if (DiscourseImageUtils.isUploadUrlCached(widget.imageData.src)) {
+      final resolvedUrl = DiscourseImageUtils.getCachedUploadUrl(widget.imageData.src);
       if (resolvedUrl != null) {
         return _buildImageWidget(context, resolvedUrl, resolvedUrl, displayHeight);
       }
@@ -181,7 +235,7 @@ class _GridImageTile extends StatelessWidget {
 
     // 首次加载：使用 FutureBuilder 解析
     return FutureBuilder<String?>(
-      future: DiscourseImageUtils.resolveUploadUrl(imageData.src),
+      future: DiscourseImageUtils.resolveUploadUrl(widget.imageData.src),
       builder: (context, snapshot) {
         // 加载中
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -202,23 +256,23 @@ class _GridImageTile extends StatelessWidget {
 
   Widget _buildImageWidget(BuildContext context, String displayUrl, String fullUrl, double displayHeight) {
     return SizedBox(
-      width: columnWidth,
+      width: widget.columnWidth,
       height: displayHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: GestureDetector(
           onTap: () => _openViewer(context, fullUrl),
           child: Hero(
-            tag: heroTag,
+            tag: widget.heroTag,
             child: Image(
               image: discourseImageProvider(displayUrl),
               fit: BoxFit.cover,
-              width: columnWidth,
+              width: widget.columnWidth,
               height: displayHeight,
               loadingBuilder: (context, child, loadingProgress) {
                 if (loadingProgress == null) return child;
                 return Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
+                  color: widget.theme.colorScheme.surfaceContainerHighest,
                   child: Center(
                     child: SizedBox(
                       width: 24,
@@ -236,10 +290,10 @@ class _GridImageTile extends StatelessWidget {
               },
               errorBuilder: (context, error, stackTrace) {
                 return Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
+                  color: widget.theme.colorScheme.surfaceContainerHighest,
                   child: Icon(
                     Icons.broken_image,
-                    color: theme.colorScheme.outline,
+                    color: widget.theme.colorScheme.outline,
                   ),
                 );
               },
@@ -252,35 +306,35 @@ class _GridImageTile extends StatelessWidget {
 
   void _openViewer(BuildContext context, String resolvedFullUrl) {
     // 确保所有画廊图片都使用原图 URL
-    final resolvedGalleryImages = gridOriginalImages
+    final resolvedGalleryImages = widget.gridOriginalImages
         .map((url) => DiscourseImageUtils.getOriginalUrl(url))
         .toList();
     // 当前点击的图片使用解析后的 URL
-    if (index >= 0 && index < resolvedGalleryImages.length) {
-      resolvedGalleryImages[index] = DiscourseImageUtils.getOriginalUrl(resolvedFullUrl);
+    if (widget.index >= 0 && widget.index < resolvedGalleryImages.length) {
+      resolvedGalleryImages[widget.index] = DiscourseImageUtils.getOriginalUrl(resolvedFullUrl);
     }
 
     DiscourseImageUtils.openViewer(
       context: context,
       imageUrl: DiscourseImageUtils.getOriginalUrl(resolvedFullUrl),
-      heroTag: heroTag,
+      heroTag: widget.heroTag,
       thumbnailUrl: resolvedFullUrl,
       galleryImages: resolvedGalleryImages,
-      thumbnailUrls: gridThumbnailImages,
-      heroTags: heroTags,
-      initialIndex: index >= 0 ? index : 0,
-      filenames: filenames,
+      thumbnailUrls: widget.gridThumbnailImages,
+      heroTags: widget.heroTags,
+      initialIndex: widget.index >= 0 ? widget.index : 0,
+      filenames: widget.filenames,
     );
   }
 
   Widget _buildLoadingWidget(double displayHeight) {
     return SizedBox(
-      width: columnWidth,
+      width: widget.columnWidth,
       height: displayHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: Container(
-          color: theme.colorScheme.surfaceContainerHighest,
+          color: widget.theme.colorScheme.surfaceContainerHighest,
           child: const Center(
             child: SizedBox(
               width: 24,
@@ -295,15 +349,15 @@ class _GridImageTile extends StatelessWidget {
 
   Widget _buildErrorWidget(double displayHeight) {
     return SizedBox(
-      width: columnWidth,
+      width: widget.columnWidth,
       height: displayHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: Container(
-          color: theme.colorScheme.surfaceContainerHighest,
+          color: widget.theme.colorScheme.surfaceContainerHighest,
           child: Icon(
             Icons.broken_image,
-            color: theme.colorScheme.outline,
+            color: widget.theme.colorScheme.outline,
           ),
         ),
       ),

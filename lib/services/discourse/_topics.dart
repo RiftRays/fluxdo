@@ -25,6 +25,7 @@ mixin _TopicsMixin on _DiscourseServiceBase {
     String? categorySlug,
     String? parentCategorySlug,
     List<String>? tags,
+    String? period,
     int page = 0,
   }) async {
     String path;
@@ -34,23 +35,26 @@ mixin _TopicsMixin on _DiscourseServiceBase {
       queryParams['page'] = page;
     }
 
-    if (tags != null && tags.isNotEmpty) {
-      queryParams['tags'] = tags.join(',');
+    if (period != null) {
+      queryParams['period'] = period;
     }
 
     if (categoryId != null && categorySlug != null) {
+      // 分类路径，标签通过 tags[] 查询参数传递
       if (parentCategorySlug != null) {
         path = '/c/$parentCategorySlug/$categorySlug/$categoryId/l/$filter.json';
       } else {
         path = '/c/$categorySlug/$categoryId/l/$filter.json';
       }
+      if (tags != null && tags.isNotEmpty) {
+        queryParams['tags[]'] = tags;
+      }
     } else if (tags != null && tags.isNotEmpty) {
-      if (tags.length == 1) {
-        path = '/tag/${tags.first}/l/$filter.json';
-        queryParams.remove('tags');
-      } else {
-        path = '/tags/intersection/${tags.join('/')}/l/$filter.json';
-        queryParams.remove('tags');
+      // 纯标签筛选：单标签用路径，多标签用第一个标签路径 + 其余标签查询参数
+      path = '/tag/${tags.first}/l/$filter.json';
+      if (tags.length > 1) {
+        queryParams['tags[]'] = tags.skip(1).toList();
+        queryParams['match_all_tags'] = 'true';
       }
     } else {
       path = '/$filter.json';

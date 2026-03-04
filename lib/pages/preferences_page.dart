@@ -137,13 +137,9 @@ class PreferencesPage extends ConsumerWidget {
             _buildSectionHeader(theme, '高级'),
             const SizedBox(height: 12),
             Card(
-              elevation: 0,
-              color: theme.colorScheme.surfaceContainerLow,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha:0.2)),
               ),
-              margin: EdgeInsets.zero,
               clipBehavior: Clip.antiAlias,
               child: SwitchListTile(
                 title: const Text('崩溃日志上报'),

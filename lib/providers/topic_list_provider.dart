@@ -33,7 +33,17 @@ extension TopicListFilterX on TopicListFilter {
       case TopicListFilter.top:
         return 'top';
       case TopicListFilter.hot:
-        return 'top/weekly';
+        return 'top';
+    }
+  }
+
+  /// 获取 top 排序的周期参数（仅 top/hot 有效）
+  String? get period {
+    switch (this) {
+      case TopicListFilter.hot:
+        return 'weekly';
+      default:
+        return null;
     }
   }
 }
@@ -135,6 +145,7 @@ class TopicListNotifier extends AsyncNotifier<List<Topic>> {
         categorySlug: filterParams.categorySlug,
         parentCategorySlug: filterParams.parentCategorySlug,
         tags: filterParams.tags.isNotEmpty ? filterParams.tags : null,
+        period: filter.period,
         page: page,
       );
     }
