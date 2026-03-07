@@ -66,15 +66,23 @@ jobs:
           packages: 'ndk;25.2.9519653'
 
       - name: Setup Android Signing
-        if: startsWith(matrix.platform, 'android') && secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEY_PROPERTIES != ''
+        if: startsWith(matrix.platform, 'android')
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
-          echo "${{ secrets.ANDROID_KEY_PROPERTIES }}" > android/key.properties
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && [ -n "${{ secrets.ANDROID_KEY_PROPERTIES }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+            echo "${{ secrets.ANDROID_KEY_PROPERTIES }}" > android/key.properties
+          else
+            echo "Android signing secrets not set, skipping signing setup."
+          fi
 
       - name: Setup Google Services
-        if: startsWith(matrix.platform, 'android') && secrets.GOOGLE_SERVICES_JSON != ''
+        if: startsWith(matrix.platform, 'android')
         run: |
-          echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
+          else
+            echo "GOOGLE_SERVICES_JSON not set, skipping google-services.json setup."
+          fi
 
       - name: Build DOH Proxy
         if: startsWith(matrix.platform, 'android')
