@@ -11,6 +11,7 @@ import '../services/network/cookie/cookie_jar_service.dart';
 import '../services/network/cookie/cookie_sync_service.dart';
 import '../services/toast_service.dart';
 import '../services/webview_settings.dart';
+import '../services/log/log_writer.dart';
 
 /// WebView 登录页面（统一使用 flutter_inappwebview）
 class WebViewLoginPage extends ConsumerStatefulWidget {
@@ -26,6 +27,7 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
   final _credentialStore = CredentialStoreService();
   InAppWebViewController? _controller;
   bool _isLoading = true;
+  bool _loginHandled = false;
   String _url = 'https://linux.do/';
   double _progress = 0;
   String? _savedUsername;
@@ -218,6 +220,8 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
 
   /// 检测登录状态，登录成功自动关闭
   Future<void> _checkLoginStatus(InAppWebViewController controller) async {
+    if (_loginHandled) return;
+
     final cookieManager = CookieManager.instance();
     final cookies = await cookieManager.getCookies(url: WebUri('https://linux.do/'));
 
@@ -228,6 +232,9 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
     }
 
     if (tToken == null || tToken.isEmpty) return;
+
+    // 防止重定向导致多次触发
+    _loginHandled = true;
 
     // 尝试从页面获取用户名
     String? username;
@@ -272,6 +279,16 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
     _service.onLoginSuccess(tToken);
     // 登录后重新加载预热数据
     await PreloadedDataService().refresh();
+
+    // 记录登录日志
+    LogWriter.instance.write({
+      'timestamp': DateTime.now().toIso8601String(),
+      'level': 'info',
+      'type': 'lifecycle',
+      'event': 'login',
+      'message': '用户登录成功',
+      if (username != null) 'username': username,
+    });
 
     if (mounted) {
       ToastService.showSuccess('登录成功！${username != null ? '用户: $username' : ''}');

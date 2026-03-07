@@ -113,6 +113,17 @@ mixin _AuthMixin on _DiscourseServiceBase {
   Future<void> _handleAuthInvalid(String message) async {
     if (_isLoggingOut) return;
     _isLoggingOut = true;
+
+    // 记录被动退出日志
+    LogWriter.instance.write({
+      'timestamp': DateTime.now().toIso8601String(),
+      'level': 'warning',
+      'type': 'lifecycle',
+      'event': 'logout_passive',
+      'message': '登录失效被动退出',
+      'reason': message,
+    });
+
     await logout(callApi: false, refreshPreload: true);
     _isLoggingOut = false;
     _authErrorController.add(message);

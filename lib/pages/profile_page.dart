@@ -34,6 +34,7 @@ import '../services/cdk_oauth_service.dart';
 import '../services/toast_service.dart';
 import '../utils/number_utils.dart';
 import '../services/emoji_handler.dart';
+import '../services/log/log_writer.dart';
 
 /// 个人页面
 class ProfilePage extends ConsumerStatefulWidget {
@@ -127,6 +128,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
 
     if (confirmed == true && mounted) {
       LoadingDialog.show(context, message: '正在退出...');
+
+      // 记录主动退出日志
+      LogWriter.instance.write({
+        'timestamp': DateTime.now().toIso8601String(),
+        'level': 'info',
+        'type': 'lifecycle',
+        'event': 'logout_active',
+        'message': '用户主动退出登录',
+      });
 
       await ref.read(discourseServiceProvider).logout(callApi: true);
       if (mounted) {

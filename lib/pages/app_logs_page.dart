@@ -6,7 +6,7 @@ import '../services/log/logger_utils.dart';
 import '../services/toast_service.dart';
 
 /// 日志筛选类型
-enum _LogFilter { all, error, request }
+enum _LogFilter { all, error, request, lifecycle }
 
 /// 应用日志查看页面
 class AppLogsPage extends StatefulWidget {
@@ -35,6 +35,8 @@ class _AppLogsPageState extends State<AppLogsPage> {
         return _entries.where((e) => e['level'] == 'error').toList();
       case _LogFilter.request:
         return _entries.where((e) => e['type'] == 'request').toList();
+      case _LogFilter.lifecycle:
+        return _entries.where((e) => e['type'] == 'lifecycle').toList();
     }
   }
 
@@ -106,6 +108,17 @@ class _AppLogsPageState extends State<AppLogsPage> {
       return (Icons.http, Colors.blue);
     }
 
+    if (type == 'lifecycle') {
+      final event = entry['event']?.toString() ?? '';
+      return switch (event) {
+        'app_start' => (Icons.rocket_launch_outlined, Colors.teal),
+        'login' => (Icons.login, Colors.green),
+        'logout_active' => (Icons.logout, Colors.blueGrey),
+        'logout_passive' => (Icons.logout, Colors.orange),
+        _ => (Icons.timeline, Colors.teal),
+      };
+    }
+
     switch (level) {
       case 'error':
         return (Icons.error_outline, Colors.red);
@@ -128,6 +141,10 @@ class _AppLogsPageState extends State<AppLogsPage> {
       final uri = Uri.tryParse(url);
       final path = uri?.path ?? url;
       return '$method $path';
+    }
+
+    if (type == 'lifecycle') {
+      return entry['message']?.toString() ?? '生命周期事件';
     }
 
     final tag = entry['tag']?.toString();
@@ -158,6 +175,15 @@ class _AppLogsPageState extends State<AppLogsPage> {
       return parts.join(' · ');
     }
 
+    if (type == 'lifecycle') {
+      final parts = <String>[];
+      final username = entry['username']?.toString();
+      final reason = entry['reason']?.toString();
+      if (username != null) parts.add('用户: $username');
+      if (reason != null) parts.add(reason);
+      return parts.join(' · ');
+    }
+
     final level = entry['level']?.toString() ?? 'error';
     if (level == 'error') {
       return entry['error']?.toString() ?? '未知错误';
@@ -169,9 +195,78 @@ class _AppLogsPageState extends State<AppLogsPage> {
     final type = entry['type']?.toString() ?? 'general';
     if (type == 'request') {
       _showRequestDetail(entry);
+    } else if (type == 'lifecycle') {
+      _showLifecycleDetail(entry);
     } else {
       _showGeneralDetail(entry);
     }
+  }
+
+  void _showLifecycleDetail(Map<String, dynamic> entry) {
+    final timestamp = entry['timestamp']?.toString() ?? '';
+    final event = entry['event']?.toString() ?? '';
+    final message = entry['message']?.toString() ?? '';
+    final username = entry['username']?.toString();
+    final reason = entry['reason']?.toString();
+    final appVersion = entry['appVersion']?.toString();
+
+    final eventLabel = switch (event) {
+      'app_start' => '应用启动',
+      'login' => '用户登录',
+      'logout_active' => '主动退出',
+      'logout_passive' => '被动退出',
+      _ => event,
+    };
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                eventLabel,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.copy, size: 20),
+              onPressed: () {
+                final detail = StringBuffer()
+                  ..writeln('时间: $timestamp')
+                  ..writeln('事件: $eventLabel');
+                if (appVersion != null) detail.writeln('版本: $appVersion');
+                detail.writeln('消息: $message');
+                if (username != null) detail.writeln('用户: $username');
+                if (reason != null) detail.writeln('原因: $reason');
+                Clipboard.setData(ClipboardData(text: detail.toString()));
+                ToastService.showSuccess('已复制到剪贴板');
+              },
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDetailField('时间', timestamp),
+              if (appVersion != null) _buildDetailField('版本', appVersion),
+              _buildDetailField('事件', eventLabel),
+              _buildDetailField('消息', message),
+              if (username != null) _buildDetailField('用户', username),
+              if (reason != null) _buildDetailField('原因', reason),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showGeneralDetail(Map<String, dynamic> entry) {
@@ -473,6 +568,8 @@ class _AppLogsPageState extends State<AppLogsPage> {
               _buildFilterChip('错误', _LogFilter.error),
               const SizedBox(width: 8),
               _buildFilterChip('请求', _LogFilter.request),
+              const SizedBox(width: 8),
+              _buildFilterChip('生命周期', _LogFilter.lifecycle),
             ],
           ),
         ),

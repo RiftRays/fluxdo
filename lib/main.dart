@@ -108,6 +108,15 @@ Future<void> main() async {
   // PreheatGate 中的 ensureLoaded() 会复用这个已在进行的请求
   PreloadedDataService().ensureLoaded().ignore();
 
+  // 记录应用启动日志
+  LogWriter.instance.write({
+    'timestamp': DateTime.now().toIso8601String(),
+    'level': 'info',
+    'type': 'lifecycle',
+    'event': 'app_start',
+    'message': '应用启动',
+  });
+
   // 清理过期日志（14 天前）
   LoggerUtils.cleanExpiredLogs().ignore();
 

@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../services/preloaded_data_service.dart';
 import '../services/discourse/discourse_service.dart';
 import '../services/emoji_handler.dart';
+import '../services/log/log_writer.dart';
 import '../pages/network_settings_page/network_settings_page.dart';
 import '../utils/error_utils.dart';
 import '../widgets/common/error_view.dart';
@@ -229,6 +230,14 @@ class _PreheatFailed extends StatelessWidget {
       ),
     );
     if (confirmed == true && context.mounted) {
+      // 记录主动退出日志（网络错误页面）
+      LogWriter.instance.write({
+        'timestamp': DateTime.now().toIso8601String(),
+        'level': 'info',
+        'type': 'lifecycle',
+        'event': 'logout_active',
+        'message': '用户主动退出登录（预热失败页面）',
+      });
       await DiscourseService().logout(callApi: false, refreshPreload: false);
       onRetry();
     }
