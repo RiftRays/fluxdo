@@ -1,11 +1,7 @@
-import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inappwebview;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// HTTP 代理设置数据模型
+/// 上游 HTTP 代理设置数据模型
 class ProxySettings {
   const ProxySettings({
     this.enabled = false,
@@ -15,16 +11,19 @@ class ProxySettings {
     this.password,
   });
 
-  /// 是否启用 HTTP 代理
+  /// 是否启用上游代理
   final bool enabled;
-  /// 代理服务器地址
+  /// 上游代理服务器地址
   final String host;
-  /// 代理服务器端口
+  /// 上游代理服务器端口
   final int port;
   /// 用户名（可选）
   final String? username;
   /// 密码（可选）
   final String? password;
+
+  /// 是否已填写服务器地址和端口
+  bool get hasServer => host.isNotEmpty && port > 0;
 
   /// 代理是否有效配置
   bool get isValid => enabled && host.isNotEmpty && port > 0;
@@ -46,7 +45,7 @@ class ProxySettings {
   }
 }
 
-/// HTTP 代理设置服务（独立于 DOH）
+/// 上游 HTTP 代理设置服务
 class ProxySettingsService {
   ProxySettingsService._internal();
 
@@ -70,9 +69,6 @@ class ProxySettingsService {
 
   ProxySettings get current => notifier.value;
 
-  /// 启用代理时的回调，用于通知其他服务（如 DOH）
-  VoidCallback? onProxyEnabled;
-
   Future<void> initialize(SharedPreferences prefs) async {
     if (_prefs != null) return;
     _prefs = prefs;
@@ -90,35 +86,19 @@ class ProxySettingsService {
       username: username,
       password: password,
     );
-
-    if (notifier.value.isValid) {
-      await _applyWebViewProxy();
-    }
   }
 
-  /// 启用/禁用 HTTP 代理
+  /// 启用/禁用上游 HTTP 代理
   Future<void> setEnabled(bool enabled) async {
     final prefs = _prefs;
     if (prefs == null) return;
 
     notifier.value = notifier.value.copyWith(enabled: enabled);
     await prefs.setBool(_enabledKey, enabled);
-
-    // 启用代理时通知其他服务
-    if (enabled) {
-      onProxyEnabled?.call();
-    }
-
-    if (enabled) {
-      await _applyWebViewProxy();
-    } else {
-      await _clearWebViewProxy();
-    }
-
     _touch();
   }
 
-  /// 设置代理服务器地址和端口
+  /// 设置上游代理服务器地址和端口
   Future<void> setServer({
     required String host,
     required int port,
@@ -150,10 +130,6 @@ class ProxySettingsService {
       await prefs.remove(_passwordKey);
     }
 
-    if (current.enabled && current.isValid) {
-      await _applyWebViewProxy();
-    }
-
     _touch();
   }
 
@@ -161,31 +137,6 @@ class ProxySettingsService {
   Future<void> disable() async {
     if (!current.enabled) return;
     await setEnabled(false);
-  }
-
-  /// 应用 WebView 代理（仅 Android）
-  Future<void> _applyWebViewProxy() async {
-    if (!Platform.isAndroid) return;
-    final settings = current;
-    if (!settings.isValid) return;
-    try {
-      await inappwebview.ProxyController.instance().setProxyOverride(
-        settings: inappwebview.ProxySettings(
-          proxyRules: [
-            inappwebview.ProxyRule(
-                url: 'http://${settings.host}:${settings.port}'),
-          ],
-        ),
-      );
-    } catch (_) {}
-  }
-
-  /// 清除 WebView 代理（仅 Android）
-  Future<void> _clearWebViewProxy() async {
-    if (!Platform.isAndroid) return;
-    try {
-      await inappwebview.ProxyController.instance().clearProxyOverride();
-    } catch (_) {}
   }
 
   void _touch() {

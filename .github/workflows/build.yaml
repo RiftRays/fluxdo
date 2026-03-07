@@ -1,12 +1,8 @@
-name: Build and Release
+name: Build Artifacts
 
 on:
-  push:
-    tags:
-      - 'v*'
-
-env:
-  IS_STABLE: ${{ !contains(github.ref, '-') }}
+  workflow_dispatch:
+  workflow_call:
 
 jobs:
   build:
@@ -70,10 +66,14 @@ jobs:
           packages: 'ndk;25.2.9519653'
 
       - name: Setup Android Signing
-        if: startsWith(matrix.platform, 'android')
+        if: startsWith(matrix.platform, 'android') && secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEY_PROPERTIES != ''
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
           echo "${{ secrets.ANDROID_KEY_PROPERTIES }}" > android/key.properties
+
+      - name: Setup Google Services
+        if: startsWith(matrix.platform, 'android') && secrets.GOOGLE_SERVICES_JSON != ''
+        run: |
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
 
       - name: Build DOH Proxy
@@ -118,174 +118,3 @@ jobs:
           name: artifact-${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) }}
           path: ./dist
           overwrite: true
-
-  changelog:
-    needs: build
-    runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref, '-') }}
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: refs/heads/main
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate Changelog
-        run: |
-          last_ver=$(grep -m1 '^## ' CHANGELOG.md 2>/dev/null | sed 's/^## //' || echo "")
-
-          tags=($(git tag --merged HEAD --sort=-creatordate))
-
-          temp="NEW_CHANGELOG.md"
-          > "$temp"
-
-          for i in "${!tags[@]}"; do
-              curr="${tags[i]}"
-              [[ "$curr" == "$last_ver" ]] && break
-
-              prev="${tags[i+1]}"
-              range="${prev:+$prev..}$curr"
-
-              echo -e "## $curr\n" >> "$temp"
-              git log --no-merges --pretty=format:"%B%x1e" "$range" | \
-              awk 'BEGIN{RS="\x1e"} \
-                $0 !~ /Update changelog/ && \
-                $0 !~ /Co-Authored-By: Release Script/ && \
-                $0 !~ /^chore: bump version to / { \
-                  gsub(/\n+$/, "", $0); \
-                  if (length($0)) { \
-                    n=split($0, lines, /\n+/); \
-                    for (i=1;i<=n;i++) if (length(lines[i])) print "- " lines[i] "\n"; \
-                  } \
-                }' >> "$temp"
-          done
-
-          [ -f CHANGELOG.md ] && cat CHANGELOG.md >> "$temp"
-          mv "$temp" CHANGELOG.md
-
-      - name: Commit Changelog
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add CHANGELOG.md
-          if ! git diff --cached --quiet; then
-            git commit -m "Update changelog for ${{ github.ref_name }}"
-            git push
-          fi
-
-  upload:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions: write-all
-    services:
-      telegram-bot-api:
-        image: aiogram/telegram-bot-api:latest
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-        ports:
-          - 8081:8081
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: ./dist/
-          pattern: artifact-*
-          merge-multiple: true
-
-      - name: List artifacts
-        run: ls -la ./dist/
-
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Generate release notes
-        run: |
-          tags=($(git tag --merged HEAD --sort=-creatordate))
-          preTag=$(curl -s "https://api.github.com/repos/lingyan000/fluxdo/releases/latest" | \
-          sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' || echo "")
-
-          out="release_notes.md"
-          > "$out"
-
-          for i in "${!tags[@]}"; do
-            curr="${tags[i]}"
-            [[ "$curr" == "$preTag" ]] && break
-
-            prev="${tags[i+1]}"
-            range="${prev:+$prev..}$curr"
-
-            git log --no-merges --pretty=format:"%B%x1e" "$range" | \
-            awk 'BEGIN{RS="\x1e"} \
-              $0 !~ /Update changelog/ && \
-              $0 !~ /Co-Authored-By: Release Script/ && \
-              $0 !~ /^chore: bump version to / { \
-                gsub(/\n+$/, "", $0); \
-                if (length($0)) { \
-                  n=split($0, lines, /\n+/); \
-                  for (i=1;i<=n;i++) if (length(lines[i])) print "- " lines[i] "\n"; \
-                } \
-              }' >> "$out"
-          done
-
-      - name: Wait for telegram-bot-api
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        if: env.TELEGRAM_BOT_TOKEN
-        run: |
-          for i in {1..20}; do
-            if curl -sf "http://localhost:8081/bot${TELEGRAM_BOT_TOKEN}/getMe" > /dev/null; then
-              echo "telegram-bot-api is ready"
-              exit 0
-            fi
-            echo "waiting for telegram-bot-api..."
-            sleep 2
-          done
-          echo "telegram-bot-api not ready"
-          exit 1
-
-      - name: Send Telegram notification
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
-          IS_PRERELEASE: ${{ contains(github.ref, '-') }}
-          TELEGRAM_API_BASE: http://localhost:8081
-        if: env.TELEGRAM_BOT_TOKEN
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-          python release_telegram.py
-
-      - name: Append release template
-        run: |
-          sed 's/VERSION/${{ steps.version.outputs.VERSION }}/g' .github/release_template.md >> release_notes.md
-
-      - name: Generate SHA256 checksums
-        if: env.IS_STABLE == 'true'
-        run: |
-          cd ./dist
-          for file in $(find . -type f -not -name "*.sha256"); do
-            sha256sum "$file" > "${file}.sha256"
-          done
-
-      - name: Create Release
-        if: env.IS_STABLE == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./dist/*
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

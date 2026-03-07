@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  IS_TAG_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
+  IS_STABLE: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yaml
+    secrets: inherit
+
+  changelog:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ env.IS_STABLE == 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: refs/heads/${{ github.event.repository.default_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Changelog
+        run: |
+          last_ver=$(grep -m1 '^## ' CHANGELOG.md 2>/dev/null | sed 's/^## //' || echo "")
+
+          tags=($(git tag --merged HEAD --sort=-creatordate))
+
+          temp="NEW_CHANGELOG.md"
+          > "$temp"
+
+          for i in "${!tags[@]}"; do
+              curr="${tags[i]}"
+              [[ "$curr" == "$last_ver" ]] && break
+
+              prev="${tags[i+1]}"
+              range="${prev:+$prev..}$curr"
+
+              echo -e "## $curr\n" >> "$temp"
+              git log --no-merges --pretty=format:"%B%x1e" "$range" | \
+              awk 'BEGIN{RS="\x1e"} \
+                $0 !~ /Update changelog/ && \
+                $0 !~ /Co-Authored-By: Release Script/ && \
+                $0 !~ /^chore: bump version to / { \
+                  gsub(/\n+$/, "", $0); \
+                  if (length($0)) { \
+                    n=split($0, lines, /\n+/); \
+                    for (i=1;i<=n;i++) if (length(lines[i])) print "- " lines[i] "\n"; \
+                  } \
+                }' >> "$temp"
+          done
+
+          [ -f CHANGELOG.md ] && cat CHANGELOG.md >> "$temp"
+          mv "$temp" CHANGELOG.md
+
+      - name: Commit Changelog
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add CHANGELOG.md
+          if ! git diff --cached --quiet; then
+            git commit -m "Update changelog for ${{ github.ref_name }}"
+            git push
+          fi
+
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ env.IS_TAG_RELEASE == 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dist/
+          pattern: artifact-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la ./dist/
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        run: |
+          tags=($(git tag --merged HEAD --sort=-creatordate))
+          preTag=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+          sed -nE 's/.*"tag_name": "([^"]+)".*/\1/p' || echo "")
+
+          out="release_notes.md"
+          > "$out"
+
+          for i in "${!tags[@]}"; do
+            curr="${tags[i]}"
+            [[ "$curr" == "$preTag" ]] && break
+
+            prev="${tags[i+1]}"
+            range="${prev:+$prev..}$curr"
+
+            git log --no-merges --pretty=format:"%B%x1e" "$range" | \
+            awk 'BEGIN{RS="\x1e"} \
+              $0 !~ /Update changelog/ && \
+              $0 !~ /Co-Authored-By: Release Script/ && \
+              $0 !~ /^chore: bump version to / { \
+                gsub(/\n+$/, "", $0); \
+                if (length($0)) { \
+                  n=split($0, lines, /\n+/); \
+                  for (i=1;i<=n;i++) if (length(lines[i])) print "- " lines[i] "\n"; \
+                } \
+              }' >> "$out"
+          done
+
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          IS_PRERELEASE: ${{ contains(github.ref, '-') }}
+          TELEGRAM_API_BASE: https://api.telegram.org
+        if: env.TELEGRAM_BOT_TOKEN
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          python release_telegram.py
+
+      - name: Append release template
+        run: |
+          sed -e 's/VERSION/${{ steps.version.outputs.VERSION }}/g' -e 's#REPOSITORY#${{ github.repository }}#g' .github/release_template.md >> release_notes.md
+
+      - name: Generate SHA256 checksums
+        if: env.IS_STABLE == 'true'
+        run: |
+          cd ./dist
+          for file in $(find . -type f -not -name "*.sha256"); do
+            sha256sum "$file" > "${file}.sha256"
+          done
+
+      - name: Create Release
+        if: env.IS_STABLE == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/*
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

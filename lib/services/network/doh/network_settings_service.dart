@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../constants.dart';
 import '../doh_proxy/doh_proxy_service.dart';
+import '../proxy/proxy_settings_service.dart';
 import 'doh_resolver.dart';
 
 class NetworkSettings {
@@ -77,7 +78,9 @@ class DohServer {
 }
 
 class NetworkSettingsService {
-  NetworkSettingsService._internal();
+  NetworkSettingsService._internal() {
+    _proxyService.notifier.addListener(_handleProxySettingsChanged);
+  }
 
   static final NetworkSettingsService instance = NetworkSettingsService._internal();
 
@@ -98,6 +101,7 @@ class NetworkSettingsService {
 
   /// Rust 代理服务（处理 DOH + ECH）
   final DohProxyService _rustProxyService = DohProxyService.instance;
+  final ProxySettingsService _proxyService = ProxySettingsService.instance;
 
   late DohResolver _resolver;
   SharedPreferences? _prefs;
@@ -120,6 +124,8 @@ class NetworkSettingsService {
   DohProxyService get proxyService => _rustProxyService;
 
   NetworkSettings get current => notifier.value;
+
+  bool get shouldRunLocalProxy => current.dohEnabled || _proxyService.current.isValid;
 
   List<DohServer> get servers => [
         ..._defaultServers,
@@ -156,7 +162,7 @@ class NetworkSettingsService {
   Future<void> setDohEnabled(bool enabled) async {
     final prefs = _prefs;
     if (prefs == null) return;
-    _beginApply(enabled: enabled);
+    _beginApply(enabled: enabled || _proxyService.current.isValid);
     notifier.value = notifier.value.copyWith(dohEnabled: enabled);
     if (!enabled && _lastStartFailed) {
       _setStartFailed(false);
@@ -234,7 +240,7 @@ class NetworkSettingsService {
       // 给 UI 一帧时间渲染 Loading
       await Future<void>.delayed(const Duration(milliseconds: 16));
     }
-    if (!current.dohEnabled) {
+    if (!shouldRunLocalProxy) {
       try {
         await _rustProxyService.stop();
         await _clearWebViewProxy();
@@ -267,11 +273,18 @@ class NetworkSettingsService {
     }
 
     try {
+      final upstream = _proxyService.current;
+
       // 启动 Rust 代理（内部处理 DOH + ECH）
       final success = await _rustProxyService.start(
         preferredPort: current.proxyPort ?? 0,
         preferIPv6: current.preferIPv6,
         dohServer: current.selectedServerUrl,
+        upstreamProtocol: upstream.isValid ? 'http' : null,
+        upstreamHost: upstream.isValid ? upstream.host : null,
+        upstreamPort: upstream.isValid ? upstream.port : null,
+        upstreamUsername: upstream.isValid ? upstream.username : null,
+        upstreamPassword: upstream.isValid ? upstream.password : null,
       );
 
       if (!success) {
@@ -328,16 +341,13 @@ class NetworkSettingsService {
   }
 
   Future<void> restartProxy() async {
-    _beginApply(enabled: true);
+    _beginApply(enabled: shouldRunLocalProxy);
     await _applyProxyState();
     _touch();
   }
 
   void _scheduleApplyProxyState() {
-    if (!current.dohEnabled) {
-      return;
-    }
-    _beginApply(enabled: true);
+    _beginApply(enabled: shouldRunLocalProxy);
     _applyDebounce?.cancel();
     _applyDebounce = Timer(const Duration(milliseconds: 350), () async {
       await _applyProxyState();
@@ -359,7 +369,7 @@ class NetworkSettingsService {
   int? get _activeProxyPort => _rustProxyService.port;
 
   Future<void> _applyWebViewProxy() async {
-    if (!current.dohEnabled) return;
+    if (!shouldRunLocalProxy) return;
     if (!Platform.isAndroid) return;
     final port = _activeProxyPort;
     if (port == null) return;
@@ -385,6 +395,12 @@ class NetworkSettingsService {
     _version++;
     // 通过重新赋值触发监听器更新
     notifier.value = notifier.value.copyWith();
+  }
+
+  void _handleProxySettingsChanged() {
+    if (_prefs == null) return;
+    _scheduleApplyProxyState();
+    _touch();
   }
 
   String _resolveSelected(String selected, List<DohServer> customServers) {
