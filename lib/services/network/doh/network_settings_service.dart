@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inappwebview;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../constants.dart';
@@ -374,10 +374,10 @@ class NetworkSettingsService {
     final port = _activeProxyPort;
     if (port == null) return;
     try {
-      await ProxyController.instance().setProxyOverride(
-        settings: ProxySettings(
+      await inappwebview.ProxyController.instance().setProxyOverride(
+        settings: inappwebview.ProxySettings(
           proxyRules: [
-            ProxyRule(url: 'http://127.0.0.1:$port'),
+            inappwebview.ProxyRule(url: 'http://127.0.0.1:$port'),
           ],
         ),
       );
@@ -387,7 +387,7 @@ class NetworkSettingsService {
   Future<void> _clearWebViewProxy() async {
     if (!Platform.isAndroid) return;
     try {
-      await ProxyController.instance().clearProxyOverride();
+      await inappwebview.ProxyController.instance().clearProxyOverride();
     } catch (_) {}
   }
 
