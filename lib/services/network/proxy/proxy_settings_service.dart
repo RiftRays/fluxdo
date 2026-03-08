@@ -90,7 +90,11 @@ class ProxySettings {
       return false;
     }
     if (protocol == UpstreamProxyProtocol.shadowsocks) {
-      return cipher.trim().isNotEmpty && (password?.trim().isNotEmpty ?? false);
+      return ProxySettingsService.validateShadowsocksSecret(
+            cipher: cipher,
+            secret: password,
+          ) ==
+          null;
     }
     return true;
   }
@@ -135,7 +139,11 @@ class ProxySettingsService {
     'aes-128-gcm',
     'aes-256-gcm',
     'chacha20-ietf-poly1305',
+    '2022-blake3-aes-256-gcm',
   ];
+  static const _shadowsocks2022KeyLengths = <String, int>{
+    '2022-blake3-aes-256-gcm': 32,
+  };
 
   final ValueNotifier<ProxySettings> notifier = ValueNotifier(
     const ProxySettings(),
@@ -293,11 +301,15 @@ class ProxySettingsService {
       );
     }
     if (settings.protocol == UpstreamProxyProtocol.shadowsocks) {
-      if (settings.cipher.trim().isEmpty || (settings.password?.trim().isEmpty ?? true)) {
+      final secretError = validateShadowsocksSecret(
+        cipher: settings.cipher,
+        secret: settings.password,
+      );
+      if (secretError != null) {
         return ProxyTestResult(
           success: false,
           summary: 'Shadowsocks 配置不完整',
-          detail: '请填写 Shadowsocks 的加密算法和密码',
+          detail: secretError,
           targetUrl: targetUri.toString(),
           testedAt: now,
         );
@@ -641,6 +653,59 @@ class ProxySettingsService {
       return normalized;
     }
     return '';
+  }
+
+  static bool isShadowsocks2022Cipher(String? cipher) {
+    return _shadowsocks2022KeyLengths.containsKey(
+      normalizeShadowsocksCipher(cipher),
+    );
+  }
+
+  static String? validateShadowsocksSecret({
+    required String? cipher,
+    required String? secret,
+  }) {
+    final normalizedCipher = normalizeShadowsocksCipher(cipher);
+    if (normalizedCipher.isEmpty) {
+      return '请选择受支持的 Shadowsocks 加密算法';
+    }
+
+    final normalizedSecret = (secret ?? '').trim();
+    if (normalizedSecret.isEmpty) {
+      return isShadowsocks2022Cipher(normalizedCipher)
+          ? '请填写 Shadowsocks 2022 的密钥（Base64 PSK）'
+          : '请填写 Shadowsocks 密码';
+    }
+
+    final requiredKeyLength = _shadowsocks2022KeyLengths[normalizedCipher];
+    if (requiredKeyLength == null) {
+      return null;
+    }
+
+    final decodedKey = _decodeBase64Secret(normalizedSecret);
+    if (decodedKey == null) {
+      return 'Shadowsocks 2022 密钥必须是有效的 Base64 字符串';
+    }
+    if (decodedKey.length != requiredKeyLength) {
+      return 'Shadowsocks 2022 密钥长度无效：解码后必须为 ${requiredKeyLength} 字节';
+    }
+    return null;
+  }
+
+  static Uint8List? _decodeBase64Secret(String input) {
+    final normalized = input.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    try {
+      return base64.decode(base64.normalize(normalized));
+    } catch (_) {
+      try {
+        return base64Url.decode(base64Url.normalize(normalized));
+      } catch (_) {
+        return null;
+      }
+    }
   }
 }
 

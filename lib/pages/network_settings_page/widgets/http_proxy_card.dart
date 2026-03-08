@@ -240,6 +240,8 @@ class HttpProxyCard extends StatelessWidget {
           builder: (dialogContext, setState) {
             final isShadowsocks =
                 selectedProtocol == UpstreamProxyProtocol.shadowsocks;
+            final isShadowsocks2022 =
+                ProxySettingsService.isShadowsocks2022Cipher(selectedCipher);
             return AlertDialog(
               title: const Text('配置上游代理'),
               content: SingleChildScrollView(
@@ -348,7 +350,13 @@ class HttpProxyCard extends StatelessWidget {
                       const SizedBox(height: 12),
                       TextField(
                         controller: passwordController,
-                        decoration: const InputDecoration(labelText: '密码'),
+                        decoration: InputDecoration(
+                          labelText:
+                              isShadowsocks2022 ? '密钥（Base64 PSK）' : '密码',
+                          hintText: isShadowsocks2022
+                              ? '请输入 Base64 编码后的 32 字节预共享密钥'
+                              : null,
+                        ),
                         obscureText: true,
                       ),
                     ] else ...[
@@ -410,8 +418,13 @@ class HttpProxyCard extends StatelessWidget {
                         ToastService.showError('请选择受支持的 Shadowsocks 加密算法');
                         return;
                       }
-                      if (passwordController.text.trim().isEmpty) {
-                        ToastService.showError('请填写 Shadowsocks 密码');
+                      final secretError =
+                          ProxySettingsService.validateShadowsocksSecret(
+                        cipher: normalizedCipher,
+                        secret: passwordController.text.trim(),
+                      );
+                      if (secretError != null) {
+                        ToastService.showError(secretError);
                         return;
                       }
                     }
