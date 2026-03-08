@@ -76,11 +76,7 @@ class HttpProxyCard extends StatelessWidget {
                     return;
                   }
 
-                  final result = await _runProxyTest(showToast: true);
-                  if (!result.success) {
-                    await proxyService.setEnabled(false);
-                    ToastService.showError('代理不可用，已自动关闭');
-                  }
+                  await _runProxyTest(showToast: true);
                 },
               ),
               if (proxySettings.hasServer || proxySettings.enabled) ...[
