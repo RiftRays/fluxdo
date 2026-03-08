@@ -346,6 +346,8 @@ class ProxySettingsService {
             timeout: timeout,
           );
           break;
+        case UpstreamProxyProtocol.shadowsocks:
+          break;
       }
       tunnelEstablished = true;
 
