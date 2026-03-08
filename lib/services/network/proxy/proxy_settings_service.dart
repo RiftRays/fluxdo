@@ -260,7 +260,7 @@ class ProxySettingsService {
     final stopwatch = Stopwatch()..start();
     Socket? socket;
     SecureSocket? secureSocket;
-    var tunnelEstablished = false;
+    bool tunnelEstablished = false;
 
     try {
       socket = await Socket.connect(
@@ -321,14 +321,13 @@ class ProxySettingsService {
         testedAt: DateTime.now(),
         latency: stopwatch.elapsed,
       );
-    } on HandshakeException catch (error) {
+    } on TlsException catch (error) {
       stopwatch.stop();
       if (tunnelEstablished && Platform.isAndroid) {
         return ProxyTestResult(
           success: true,
           summary: '代理基础连通性正常',
-          detail:
-              '已完成代理连接、认证和隧道建立；仅 `dart:io` TLS 握手失败。Android 当前代理模式实际走 WebView 网络栈，通常不影响访问',
+          detail: '已完成代理连接、认证和隧道建立；Android 当前实际走 WebView 网络栈，通常不影响访问',
           targetUrl: targetUri.toString(),
           testedAt: DateTime.now(),
           latency: stopwatch.elapsed,
