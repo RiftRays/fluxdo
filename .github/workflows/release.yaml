@@ -1,0 +1,175 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '发布标签，例如 v0.1.0'
+        required: true
+        type: string
+      target_ref:
+        description: '发布目标分支或提交，默认 main'
+        required: false
+        default: 'main'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release-android:
+    name: Build and Release Android (arm64-v8a)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ref: ${{ github.event.inputs.target_ref || github.ref }}
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag_name }}"
+            target="${{ github.event.inputs.target_ref || 'main' }}"
+          else
+            tag="${{ github.ref_name }}"
+            target="${{ github.sha }}"
+          fi
+
+          version="${tag#v}"
+          prerelease=false
+          if [[ "${tag}" == *-* ]]; then
+            prerelease=true
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "target=${target}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${prerelease}" >> "${GITHUB_OUTPUT}"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.9'
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Android build environment
+        run: |
+          rustup target add aarch64-linux-android
+          cargo install cargo-ndk
+          sudo apt-get update
+          sudo apt-get install -y cmake
+
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;25.2.9519653'
+
+      - name: Setup Android Signing
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ] && [ -n "${{ secrets.ANDROID_KEY_PROPERTIES }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+            echo "${{ secrets.ANDROID_KEY_PROPERTIES }}" > android/key.properties
+          else
+            echo "Android signing secrets not set, skipping signing setup."
+          fi
+
+      - name: Setup Google Services
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 -d > android/app/google-services.json
+          else
+            echo "GOOGLE_SERVICES_JSON not set, skipping google-services.json setup."
+          fi
+
+      - name: Build DOH Proxy
+        working-directory: core/doh_proxy
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/25.2.9519653
+        run: cargo ndk -t arm64-v8a --platform 28 build --release --features ech
+
+      - name: Copy native libraries
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp core/doh_proxy/target/aarch64-linux-android/release/libdoh_proxy.so android/app/src/main/jniLibs/arm64-v8a/
+          mkdir -p android/app/src/main/res/raw
+          cp core/doh_proxy/certs/ca.der android/app/src/main/res/raw/proxy_ca.der
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build Android
+        run: |
+          flutter build apk --release --target-platform android-arm64 --dart-define=cronetHttpNoPlay=true
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/fluxdo-arm64-v8a.apk
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum fluxdo-arm64-v8a.apk > fluxdo-arm64-v8a.apk.sha256
+
+      - name: Generate release notes
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          version="${{ steps.meta.outputs.version }}"
+          previous_tag="$(git tag --list 'v*' --sort=-creatordate | grep -vx "$tag" | head -n 1 || true)"
+
+          {
+            echo "## 本次推送日志"
+            echo
+            echo "- 发布标签：\`${tag}\`"
+            echo "- 发布仓库：\`${REPOSITORY}\`"
+            if [ -n "${previous_tag}" ]; then
+              echo "- 对比区间：\`${previous_tag}..${tag}\`"
+              echo "- 对比链接：https://github.com/${REPOSITORY}/compare/${previous_tag}...${tag}"
+            else
+              echo "- 对比区间：首次正式发布"
+            fi
+            echo
+            if [ -n "${previous_tag}" ]; then
+              git log --no-merges --pretty=format:'- `%h` %s' "${previous_tag}..HEAD"
+            else
+              git log --no-merges --pretty=format:'- `%h` %s' -n 20 HEAD
+            fi
+            echo
+            echo
+            sed -e "s|REPOSITORY|${REPOSITORY}|g" -e "s|VERSION|${version}|g" .github/release_template.md
+          } > release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ steps.meta.outputs.target }}
+          name: ${{ steps.meta.outputs.tag }}
+          body_path: release_notes.md
+          files: |
+            dist/fluxdo-arm64-v8a.apk
+            dist/fluxdo-arm64-v8a.apk.sha256
+          draft: false
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
