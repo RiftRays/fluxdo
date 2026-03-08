@@ -18,6 +18,30 @@ class ShadowsocksUriConfig {
   final String? remarks;
 }
 
+class _DecodedShadowsocksBody {
+  const _DecodedShadowsocksBody({
+    required this.cipher,
+    required this.password,
+    required this.host,
+    required this.port,
+  });
+
+  final String cipher;
+  final String password;
+  final String host;
+  final int port;
+}
+
+class _ParsedHostPort {
+  const _ParsedHostPort({
+    required this.host,
+    required this.port,
+  });
+
+  final String host;
+  final int port;
+}
+
 class ShadowsocksUriParser {
   const ShadowsocksUriParser._();
 
@@ -37,9 +61,9 @@ class ShadowsocksUriParser {
         ? Uri.decodeComponent(payload.substring(hashIndex + 1))
         : null;
 
-    final config = _parseBody(body);
+    final decoded = _parseBody(body);
     final cipher =
-        ProxySettingsService.normalizeShadowsocksCipher(config.$1.trim());
+        ProxySettingsService.normalizeShadowsocksCipher(decoded.cipher);
     if (cipher.isEmpty) {
       throw FormatException(
         '当前版本仅支持 ${ProxySettingsService.supportedShadowsocksCiphers.join(' / ')}',
@@ -47,23 +71,22 @@ class ShadowsocksUriParser {
     }
 
     return ShadowsocksUriConfig(
-      host: config.$3,
-      port: config.$4,
+      host: decoded.host,
+      port: decoded.port,
       cipher: cipher,
-      password: config.$2,
+      password: decoded.password,
       remarks: remarks,
     );
   }
 
-  static (String, String, String, int) _parseBody(String body) {
+  static _DecodedShadowsocksBody _parseBody(String body) {
     final cleaned = body.trim();
     if (cleaned.isEmpty) {
       throw const FormatException('ss:// 链接内容为空');
     }
 
     if (!cleaned.contains('@')) {
-      final decoded = _decodeBase64Payload(cleaned);
-      return _parseBody(decoded);
+      return _parseBody(_decodeBase64Payload(cleaned));
     }
 
     final atIndex = cleaned.lastIndexOf('@');
@@ -79,10 +102,13 @@ class ShadowsocksUriParser {
       throw const FormatException('无法解析加密算法和密码');
     }
 
-    final cipher = userInfo.substring(0, separatorIndex);
-    final password = userInfo.substring(separatorIndex + 1);
-    final (host, port) = _parseHostPort(hostPart);
-    return (cipher, password, host, port);
+    final hostPort = _parseHostPort(hostPart);
+    return _DecodedShadowsocksBody(
+      cipher: userInfo.substring(0, separatorIndex),
+      password: userInfo.substring(separatorIndex + 1),
+      host: hostPort.host,
+      port: hostPort.port,
+    );
   }
 
   static String _decodeBase64Payload(String input) {
@@ -98,7 +124,7 @@ class ShadowsocksUriParser {
     }
   }
 
-  static (String, int) _parseHostPort(String input) {
+  static _ParsedHostPort _parseHostPort(String input) {
     final value = input.trim();
     if (value.isEmpty) {
       throw const FormatException('缺少服务器地址');
@@ -106,26 +132,26 @@ class ShadowsocksUriParser {
 
     if (value.startsWith('[')) {
       final closing = value.indexOf(']');
-      if (closing <= 0 || closing + 2 > value.length || value[closing + 1] != ':') {
+      if (closing <= 0 ||
+          closing + 2 > value.length ||
+          value[closing + 1] != ':') {
         throw const FormatException('IPv6 地址格式无效');
       }
-      final host = value.substring(1, closing);
       final port = int.tryParse(value.substring(closing + 2));
       if (port == null || port <= 0 || port > 65535) {
         throw const FormatException('端口无效');
       }
-      return (host, port);
+      return _ParsedHostPort(host: value.substring(1, closing), port: port);
     }
 
     final colon = value.lastIndexOf(':');
     if (colon <= 0 || colon == value.length - 1) {
       throw const FormatException('缺少端口');
     }
-    final host = value.substring(0, colon);
     final port = int.tryParse(value.substring(colon + 1));
     if (port == null || port <= 0 || port > 65535) {
       throw const FormatException('端口无效');
     }
-    return (host, port);
+    return _ParsedHostPort(host: value.substring(0, colon), port: port);
   }
 }
