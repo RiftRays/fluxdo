@@ -17,25 +17,11 @@ FluxDO 是为 [Linux.do](https://linux.do/) 社区打造的现代化移动和桌
 - 将构建、发布、子模块依赖切换为可在个人 Fork 中独立维护
 - 优先提供适合真机验证和日常分发的 Android `arm64-v8a` 版本
 
-## 与原项目的差异对比
+## 当前维护方向
 
-| 对比项 | 上游原项目 | 当前维护版 | 维护版优势 |
-| --- | --- | --- | --- |
-| 构建流程 | 以标签触发构建与发布，工作流职责较集中 | 拆分为 `build.yaml` 与 `release.yaml`，日常提交自动构建，发版单独执行 | 更适合持续迭代、定位问题和独立维护 |
-| 发布策略 | 预设多 Android 架构与 iOS 产物 | 当前聚焦 Android `arm64-v8a` 正式包 | 出包更快、失败面更小、真机验证更直接 |
-| 子模块来源 | 指向上游 `fluxdo_doh` 仓库 | 指向自己的 `RiftRays/fluxdo_doh` Fork | 子模块升级、修复和 CI 不再依赖上游节奏 |
-| 上游代理模型 | 以基础 HTTP 代理为主，和 DoH 关系较松 | 改为本地网关统一接管的上游代理模型 | 代理路径更统一，Android / Dio / WebView 更容易保持一致 |
-| 支持的代理协议 | 基础 HTTP | HTTP、SOCKS5、Shadowsocks、Shadowsocks 2022 | 更适合复杂网络环境和代理用户 |
-| Android 联网适配 | 默认网络栈切换策略较基础 | 增加 Android 动态适配器，按代理/回退状态选择 Native / Network / WebView | 对 Cloudflare 验证、代理场景和兼容性更友好 |
-| 代理可用性验证 | 代理排障能力有限 | 增加代理测试入口、认证校验、错误信息细化 | 更方便快速定位“能连代理但不能访问站点”的问题 |
-| Shadowsocks 支持 | 不支持上游 Shadowsocks | 已支持 Shadowsocks，并补充 `2022-blake3-aes-256-gcm` | 可以直接接入更多现成节点配置 |
-
-## 当前维护版优势
-
-- **更适合代理网络环境**：围绕 Linux.do 的实际访问问题，重点增强了 Android 代理接入、连通性测试与兼容性处理。
-- **更适合个人 Fork 独立维护**：子模块、构建和发布流程都可以在自己的仓库闭环完成。
-- **更适合真机调试**：当前出包聚焦 `arm64-v8a`，能更快验证修复是否真正解决问题。
-- **更适合持续演进**：将网络、代理、工作流拆分为更清晰的模块，后续继续维护成本更低。
+- 持续优化 Android 代理与联网兼容性
+- 保持 Fork 仓库可独立构建、发布与验证
+- 恢复完整架构构建，方便不同设备直接下载安装
 
 ## 特性
 
@@ -165,7 +151,7 @@ FluxDO 集成了基于 Rust 的 DOH (DNS over HTTPS) 代理，提供：
 - 日常构建：提交到 `main` 后会触发 `.github/workflows/build.yaml`
 - 正式发布：推送 `v*` 标签，或手动执行 `.github/workflows/release.yaml`
 - Release 说明顶部会自动附带本次推送日志，随后再拼接 `.github/release_template.md`
-- 当前正式 Release 仅发布 Android `arm64-v8a`
+- 当前正式 Release 会输出 Android 多架构包与 iOS 未签名包
 
 ## 向上游同步的说明材料
 
