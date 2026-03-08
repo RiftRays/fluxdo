@@ -16,16 +16,16 @@ jobs:
             arch: arm64-v8a
             rust-target: aarch64-linux-android
             flutter-target: android-arm64
-          - platform: android
-            os: ubuntu-latest
-            arch: armeabi-v7a
-            rust-target: armv7-linux-androideabi
-            flutter-target: android-arm
-          - platform: android
-            os: ubuntu-latest
-            arch: x86_64
-            rust-target: x86_64-linux-android
-            flutter-target: android-x64
+          # - platform: android
+          #   os: ubuntu-latest
+          #   arch: armeabi-v7a
+          #   rust-target: armv7-linux-androideabi
+          #   flutter-target: android-arm
+          # - platform: android
+          #   os: ubuntu-latest
+          #   arch: x86_64
+          #   rust-target: x86_64-linux-android
+          #   flutter-target: android-x64
           - platform: ios
             os: macos-latest
 
