@@ -85,12 +85,12 @@ Future<void> main() async {
   await Future.wait([
     CfChallengeLogger.setEnabled(prefs.getBool('developer_mode') ?? false),
     CronetFallbackService.instance.initialize(prefs),
-    NetworkSettingsService.instance.initialize(prefs),
     ProxySettingsService.instance.initialize(prefs),
     if (Platform.isAndroid && crashlyticsEnabled)
       const MethodChannel('com.github.lingyan000.fluxdo/crashlytics')
           .invokeMethod('setCrashlyticsEnabled', {'enabled': true}),
   ]);
+  await NetworkSettingsService.instance.initialize(prefs);
 
   // 应用竖屏锁定设置（仅移动端）
   if (Platform.isIOS || Platform.isAndroid) {
