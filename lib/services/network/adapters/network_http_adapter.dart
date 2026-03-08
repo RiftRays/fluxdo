@@ -191,7 +191,9 @@ class NetworkHttpAdapter implements HttpClientAdapter {
   }
 
   bool _shouldTrustProxyCa() {
-    return _shouldUseLocalGateway && _proxyCaBytes != null;
+    return _shouldUseLocalGateway &&
+        _settings.current.dohEnabled &&
+        _proxyCaBytes != null;
   }
 
   SecurityContext? _buildSecurityContext() {

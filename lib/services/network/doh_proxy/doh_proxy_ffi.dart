@@ -95,6 +95,7 @@ class DohProxyFfi {
   /// [dohServer] - DOH server URL (null for default Cloudflare)
   int start({
     int port = 0,
+    bool enableDoh = true,
     bool preferIpv6 = false,
     String? dohServer,
     String? upstreamProtocol,
@@ -110,6 +111,7 @@ class DohProxyFfi {
     final configJson = jsonEncode({
       'bind_addr': '127.0.0.1',
       'bind_port': port,
+      'enable_doh': enableDoh,
       'doh_server': dohServer ?? 'cloudflare',
       'prefer_ipv6': preferIpv6,
       'timeout_secs': 30,
