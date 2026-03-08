@@ -260,6 +260,7 @@ class ProxySettingsService {
     final stopwatch = Stopwatch()..start();
     Socket? socket;
     SecureSocket? secureSocket;
+    var tunnelEstablished = false;
 
     try {
       socket = await Socket.connect(
@@ -287,6 +288,7 @@ class ProxySettingsService {
           );
           break;
       }
+      tunnelEstablished = true;
 
       secureSocket = await SecureSocket.secure(
         socket,
@@ -315,6 +317,27 @@ class ProxySettingsService {
         success: false,
         summary: '代理测试超时',
         detail: '连接或握手超过 ${timeout.inSeconds} 秒，未能完成 ${targetUri.host} 可用性验证',
+        targetUrl: targetUri.toString(),
+        testedAt: DateTime.now(),
+        latency: stopwatch.elapsed,
+      );
+    } on HandshakeException catch (error) {
+      stopwatch.stop();
+      if (tunnelEstablished && Platform.isAndroid) {
+        return ProxyTestResult(
+          success: true,
+          summary: '代理基础连通性正常',
+          detail:
+              '已完成代理连接、认证和隧道建立；仅 `dart:io` TLS 握手失败。Android 当前代理模式实际走 WebView 网络栈，通常不影响访问',
+          targetUrl: targetUri.toString(),
+          testedAt: DateTime.now(),
+          latency: stopwatch.elapsed,
+        );
+      }
+      return ProxyTestResult(
+        success: false,
+        summary: 'TLS 握手失败',
+        detail: error.toString(),
         targetUrl: targetUri.toString(),
         testedAt: DateTime.now(),
         latency: stopwatch.elapsed,
