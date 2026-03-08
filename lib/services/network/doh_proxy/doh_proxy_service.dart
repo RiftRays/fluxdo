@@ -60,6 +60,7 @@ class DohProxyService {
     int? upstreamPort,
     String? upstreamUsername,
     String? upstreamPassword,
+    String? upstreamCipher,
   }) async {
     final upstreamSignature = _buildUpstreamSignature(
       protocol: upstreamProtocol,
@@ -67,6 +68,7 @@ class DohProxyService {
       port: upstreamPort,
       username: upstreamUsername,
       password: upstreamPassword,
+      cipher: upstreamCipher,
     );
     if (_isRunning) {
       final sameConfig = _currentEnableDoh == enableDoh
@@ -96,6 +98,7 @@ class DohProxyService {
         upstreamPort,
         upstreamUsername,
         upstreamPassword,
+        upstreamCipher,
       );
     } else {
       return _startWithProcess(
@@ -108,6 +111,7 @@ class DohProxyService {
         upstreamPort,
         upstreamUsername,
         upstreamPassword,
+        upstreamCipher,
       );
     }
   }
@@ -123,6 +127,7 @@ class DohProxyService {
     int? upstreamPort,
     String? upstreamUsername,
     String? upstreamPassword,
+    String? upstreamCipher,
   ) async {
     try {
       return await _enqueueFfiOp(() async {
@@ -142,6 +147,7 @@ class DohProxyService {
           upstreamPort: upstreamPort,
           upstreamUsername: upstreamUsername,
           upstreamPassword: upstreamPassword,
+          upstreamCipher: upstreamCipher,
         );
         if (resultPort <= 0) {
           // _callFfiStart 已设置更详细的 _lastError，仅在未设置时补充
@@ -162,6 +168,7 @@ class DohProxyService {
           port: upstreamPort,
           username: upstreamUsername,
           password: upstreamPassword,
+          cipher: upstreamCipher,
         );
         NetworkLogger.log('[DOH] FFI 代理已启动，端口: $_port');
         return true;
@@ -184,6 +191,7 @@ class DohProxyService {
     int? upstreamPort,
     String? upstreamUsername,
     String? upstreamPassword,
+    String? upstreamCipher,
   ) async {
     try {
       final executablePath = await _getExecutablePath();
@@ -214,6 +222,10 @@ class DohProxyService {
           if (upstreamPort != null) ...[
             '--upstream-port',
             upstreamPort.toString(),
+          ],
+          if (upstreamCipher != null && upstreamCipher.isNotEmpty) ...[
+            '--upstream-cipher',
+            upstreamCipher,
           ],
           if (upstreamUsername != null && upstreamUsername.isNotEmpty) ...[
             '--upstream-user',
@@ -254,6 +266,7 @@ class DohProxyService {
             port: upstreamPort,
             username: upstreamUsername,
             password: upstreamPassword,
+            cipher: upstreamCipher,
           );
           NetworkLogger.log('[DOH] 代理已启动，端口: $_port');
           completed = true;
@@ -423,6 +436,7 @@ class DohProxyService {
     required int? upstreamPort,
     required String? upstreamUsername,
     required String? upstreamPassword,
+    required String? upstreamCipher,
   }) async {
     final sendPort = await _ensureFfiIsolate();
     final response = ReceivePort();
@@ -437,6 +451,7 @@ class DohProxyService {
       'upstreamPort': upstreamPort,
       'upstreamUsername': upstreamUsername,
       'upstreamPassword': upstreamPassword,
+      'upstreamCipher': upstreamCipher,
       'preferredPort': port,
       'replyTo': response.sendPort,
     });
@@ -501,6 +516,7 @@ class DohProxyService {
     required int? port,
     required String? username,
     required String? password,
+    required String? cipher,
   }) {
     if (host == null || host.isEmpty || port == null || port <= 0) {
       return null;
@@ -511,6 +527,7 @@ class DohProxyService {
       'port': port,
       'username': username ?? '',
       'password': password ?? '',
+      'cipher': cipher ?? '',
     });
   }
 
@@ -553,6 +570,7 @@ void _ffiIsolateEntry(SendPort mainSendPort) {
           final upstreamPort = message['upstreamPort'] as int?;
           final upstreamUsername = message['upstreamUsername'] as String?;
           final upstreamPassword = message['upstreamPassword'] as String?;
+          final upstreamCipher = message['upstreamCipher'] as String?;
           var resultPort = DohProxyFfi.instance.start(
             port: portValue,
             enableDoh: enableDoh,
@@ -563,6 +581,7 @@ void _ffiIsolateEntry(SendPort mainSendPort) {
             upstreamPort: upstreamPort,
             upstreamUsername: upstreamUsername,
             upstreamPassword: upstreamPassword,
+            upstreamCipher: upstreamCipher,
           );
           if (resultPort <= 0 && preferredPort != 0) {
             resultPort = DohProxyFfi.instance.start(
@@ -575,6 +594,7 @@ void _ffiIsolateEntry(SendPort mainSendPort) {
               upstreamPort: upstreamPort,
               upstreamUsername: upstreamUsername,
               upstreamPassword: upstreamPassword,
+              upstreamCipher: upstreamCipher,
             );
           }
           if (resultPort <= 0) {

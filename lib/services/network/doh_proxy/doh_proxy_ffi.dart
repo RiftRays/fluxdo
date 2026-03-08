@@ -103,6 +103,7 @@ class DohProxyFfi {
     int? upstreamPort,
     String? upstreamUsername,
     String? upstreamPassword,
+    String? upstreamCipher,
   }) {
     if (!_initialized && !initialize()) {
       return -1;
@@ -120,6 +121,8 @@ class DohProxyFfi {
           'protocol': upstreamProtocol ?? 'http',
           'host': upstreamHost,
           'port': upstreamPort,
+          if (upstreamCipher != null && upstreamCipher.isNotEmpty)
+            'cipher': upstreamCipher,
           if (upstreamUsername != null && upstreamUsername.isNotEmpty)
             'username': upstreamUsername,
           if (upstreamPassword != null && upstreamPassword.isNotEmpty)

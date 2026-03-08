@@ -10,7 +10,8 @@ import '../../../constants.dart';
 
 enum UpstreamProxyProtocol {
   http('http', 'HTTP'),
-  socks5('socks5', 'SOCKS5');
+  socks5('socks5', 'SOCKS5'),
+  shadowsocks('shadowsocks', 'Shadowsocks');
 
   const UpstreamProxyProtocol(this.storageValue, this.displayName);
 
@@ -23,6 +24,9 @@ enum UpstreamProxyProtocol {
       case 'socks5':
       case 'socks5h':
         return UpstreamProxyProtocol.socks5;
+      case 'ss':
+      case 'shadowsocks':
+        return UpstreamProxyProtocol.shadowsocks;
       case 'http':
       default:
         return UpstreamProxyProtocol.http;
@@ -59,6 +63,7 @@ class ProxySettings {
     this.port = 0,
     this.username,
     this.password,
+    this.cipher = '',
   });
 
   /// 是否启用上游代理
@@ -73,12 +78,24 @@ class ProxySettings {
   final String? username;
   /// 密码（可选）
   final String? password;
+  /// Shadowsocks 加密算法
+  final String cipher;
 
   /// 是否已填写服务器地址和端口
   bool get hasServer => host.isNotEmpty && port > 0;
 
   /// 代理是否有效配置
-  bool get isValid => enabled && host.isNotEmpty && port > 0;
+  bool get isValid {
+    if (!enabled || host.isEmpty || port <= 0) {
+      return false;
+    }
+    if (protocol == UpstreamProxyProtocol.shadowsocks) {
+      return cipher.trim().isNotEmpty && (password?.trim().isNotEmpty ?? false);
+    }
+    return true;
+  }
+
+  bool get isShadowsocks => protocol == UpstreamProxyProtocol.shadowsocks;
 
   ProxySettings copyWith({
     bool? enabled,
@@ -87,6 +104,7 @@ class ProxySettings {
     int? port,
     String? username,
     String? password,
+    String? cipher,
   }) {
     return ProxySettings(
       enabled: enabled ?? this.enabled,
@@ -95,6 +113,7 @@ class ProxySettings {
       port: port ?? this.port,
       username: username ?? this.username,
       password: password ?? this.password,
+      cipher: cipher ?? this.cipher,
     );
   }
 }
@@ -111,6 +130,12 @@ class ProxySettingsService {
   static const _portKey = 'http_proxy_port';
   static const _usernameKey = 'http_proxy_username';
   static const _passwordKey = 'http_proxy_password';
+  static const _cipherKey = 'upstream_proxy_cipher';
+  static const supportedShadowsocksCiphers = <String>[
+    'aes-128-gcm',
+    'aes-256-gcm',
+    'chacha20-ietf-poly1305',
+  ];
 
   final ValueNotifier<ProxySettings> notifier = ValueNotifier(
     const ProxySettings(),
@@ -140,6 +165,7 @@ class ProxySettingsService {
     final port = prefs.getInt(_portKey) ?? 0;
     final username = prefs.getString(_usernameKey);
     final password = prefs.getString(_passwordKey);
+    final cipher = prefs.getString(_cipherKey) ?? '';
 
     notifier.value = ProxySettings(
       enabled: enabled,
@@ -148,6 +174,7 @@ class ProxySettingsService {
       port: port,
       username: username,
       password: password,
+      cipher: cipher,
     );
   }
 
@@ -168,16 +195,21 @@ class ProxySettingsService {
     required int port,
     String? username,
     String? password,
+    String? cipher,
   }) async {
     final prefs = _prefs;
     if (prefs == null) return;
 
-    notifier.value = notifier.value.copyWith(
+    notifier.value = ProxySettings(
+      enabled: notifier.value.enabled,
       protocol: protocol,
       host: host,
       port: port,
-      username: username,
+      username: protocol == UpstreamProxyProtocol.shadowsocks ? null : username,
       password: password,
+      cipher: protocol == UpstreamProxyProtocol.shadowsocks
+          ? normalizeShadowsocksCipher(cipher)
+          : '',
     );
 
     await prefs.setString(_protocolKey, protocol.storageValue);
@@ -194,6 +226,15 @@ class ProxySettingsService {
       await prefs.setString(_passwordKey, password);
     } else {
       await prefs.remove(_passwordKey);
+    }
+
+    final normalizedCipher = protocol == UpstreamProxyProtocol.shadowsocks
+        ? normalizeShadowsocksCipher(cipher)
+        : '';
+    if (normalizedCipher.isNotEmpty) {
+      await prefs.setString(_cipherKey, normalizedCipher);
+    } else {
+      await prefs.remove(_cipherKey);
     }
 
     _resetTestResult();
@@ -247,6 +288,24 @@ class ProxySettingsService {
         success: false,
         summary: '未配置代理服务器',
         detail: '请先填写代理地址和端口',
+        targetUrl: targetUri.toString(),
+        testedAt: now,
+      );
+    }
+    if (settings.protocol == UpstreamProxyProtocol.shadowsocks) {
+      if (settings.cipher.trim().isEmpty || (settings.password?.trim().isEmpty ?? true)) {
+        return ProxyTestResult(
+          success: false,
+          summary: 'Shadowsocks 配置不完整',
+          detail: '请填写 Shadowsocks 的加密算法和密码',
+          targetUrl: targetUri.toString(),
+          testedAt: now,
+        );
+      }
+      return ProxyTestResult(
+        success: true,
+        summary: 'Shadowsocks 配置已保存',
+        detail: '当前版本会通过本地网关接管 Shadowsocks 出站；请启用代理后返回首页进行实际访问验证',
         targetUrl: targetUri.toString(),
         testedAt: now,
       );
@@ -572,6 +631,14 @@ class ProxySettingsService {
       0x08 => '地址类型不支持',
       _ => '未知错误（0x${reply.toRadixString(16)}）',
     };
+  }
+
+  static String normalizeShadowsocksCipher(String? cipher) {
+    final normalized = (cipher ?? '').trim().toLowerCase();
+    if (supportedShadowsocksCiphers.contains(normalized)) {
+      return normalized;
+    }
+    return '';
   }
 }
 
