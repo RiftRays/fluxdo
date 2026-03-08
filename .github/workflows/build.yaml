@@ -26,8 +26,8 @@ jobs:
           #   arch: x86_64
           #   rust-target: x86_64-linux-android
           #   flutter-target: android-x64
-          - platform: ios
-            os: macos-latest
+          # - platform: ios
+          #   os: macos-latest
 
     steps:
       - name: Checkout
