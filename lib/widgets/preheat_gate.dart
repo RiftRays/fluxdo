@@ -1,10 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:jovial_svg/jovial_svg.dart';
+import '../pages/about_page.dart';
+import '../pages/network_settings_page/network_settings_page.dart';
 import '../services/preloaded_data_service.dart';
 import '../services/discourse/discourse_service.dart';
 import '../services/emoji_handler.dart';
 import '../services/log/log_writer.dart';
-import '../pages/network_settings_page/network_settings_page.dart';
 import '../utils/error_utils.dart';
 import '../widgets/common/error_view.dart';
 
@@ -49,6 +52,13 @@ class _PreheatGateState extends State<PreheatGate> {
     });
   }
 
+  void _skip() {
+    setState(() {
+      _error ??= TimeoutException('用户跳过预加载');
+      _loadFuture = Future.value(false);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
@@ -60,7 +70,7 @@ class _PreheatGateState extends State<PreheatGate> {
 
         Widget currentWidget;
         if (snapshot.connectionState != ConnectionState.done) {
-          currentWidget = const _PreheatLoading(key: ValueKey('loading'));
+          currentWidget = _PreheatLoading(key: const ValueKey('loading'), onSkip: _skip);
         } else if (snapshot.data == true) {
           currentWidget = KeyedSubtree(
             key: const ValueKey('content'),
@@ -95,7 +105,9 @@ class _PreheatGateState extends State<PreheatGate> {
 }
 
 class _PreheatLoading extends StatefulWidget {
-  const _PreheatLoading({super.key});
+  final VoidCallback? onSkip;
+
+  const _PreheatLoading({super.key, this.onSkip});
 
   @override
   State<_PreheatLoading> createState() => _PreheatLoadingState();
@@ -106,6 +118,8 @@ class _PreheatLoadingState extends State<_PreheatLoading>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
+  bool _showSkip = false;
+  Timer? _skipTimer;
 
   @override
   void initState() {
@@ -122,10 +136,17 @@ class _PreheatLoadingState extends State<_PreheatLoading>
     _fadeAnimation = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOutSine),
     );
+
+    if (widget.onSkip != null) {
+      _skipTimer = Timer(const Duration(seconds: 10), () {
+        if (mounted) setState(() => _showSkip = true);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _skipTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -198,7 +219,21 @@ class _PreheatLoadingState extends State<_PreheatLoading>
               ],
             ),
           ),
-
+          if (_showSkip)
+            Positioned(
+              bottom: 48,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: TextButton(
+                  onPressed: widget.onSkip,
+                  child: Text(
+                    '跳过',
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -210,6 +245,12 @@ class _PreheatFailed extends StatelessWidget {
   final Object? error;
 
   const _PreheatFailed({super.key, required this.onRetry, this.error});
+
+  void _openAbout(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AboutPage()),
+    );
+  }
 
   void _openNetworkSettings(BuildContext context) {
     Navigator.of(context).push(
@@ -281,6 +322,13 @@ class _PreheatFailed extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.info_outline_rounded),
+                    tooltip: '关于',
+                    style: buttonStyle,
+                    onPressed: () => _openAbout(context),
+                  ),
+                  const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.network_check_rounded),
                     tooltip: '网络设置',
