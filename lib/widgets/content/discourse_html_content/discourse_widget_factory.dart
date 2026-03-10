@@ -1,7 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:jovial_svg/jovial_svg.dart';
 import '../../../models/topic.dart';
 import '../../../services/discourse_cache_manager.dart';
 import '../../common/image_context_menu.dart';
@@ -29,10 +29,8 @@ class DiscourseWidgetFactory extends WidgetFactory {
   /// 获取画廊图片列表（原图 URL）
   List<String> get galleryImages => galleryInfo?.images ?? [];
 
-  /// SVG 内容缓存：避免每次 build 都重新执行 getSingleFile() 的 SQLite 查询
-  final Map<String, _SvgCacheEntry> _svgCache = {};
-  /// 正在加载中的 SVG URL，避免并发重复加载
-  final Set<String> _svgLoading = {};
+  /// SVG 加载 Future 缓存：确保同一 URL 只加载一次，且 FutureBuilder 不会重复创建 Future
+  final Map<String, Future<ScalableImage?>> _svgFutures = {};
 
   DiscourseWidgetFactory({
     required this.context,
@@ -75,22 +73,36 @@ class DiscourseWidgetFactory extends WidgetFactory {
 
     // 检查是否是显式的 emoji class
     final bool isEmoji = tree.element.classes.contains('emoji');
+    // 独立大表情：消息仅包含 emoji 时 Discourse 会添加 only-emoji class
+    final bool isOnlyEmoji = isEmoji && tree.element.classes.contains('only-emoji');
 
     // 获取 emoji title（用于 SelectableAdapter，使 emoji 可被选中）
     final String? emojiTitle = isEmoji
         ? (tree.element.attributes['title'] ?? tree.element.attributes['alt'])
         : null;
 
+    // 通过 CSS 继承链直接解析 emoji 的 1em 字号
+    // InheritanceResolvers 包含完整的 h1~h6、inline style 等继承信息
+    double? emojiFontSize;
+    if (isEmoji) {
+      try {
+        emojiFontSize = tree.inheritanceResolvers
+            .resolve(context)
+            .prepareTextStyle()
+            .fontSize;
+      } catch (_) {}
+    }
+
     // 普通 URL：直接构建 widget，无需 FutureBuilder
     if (!DiscourseImageUtils.isUploadUrl(url)) {
-      return _buildImageWidget(url, url, width, height, isEmoji, emojiTitle: emojiTitle);
+      return _buildImageWidget(url, url, width, height, isEmoji, isOnlyEmoji: isOnlyEmoji, emojiTitle: emojiTitle, emojiFontSize: emojiFontSize);
     }
 
     // upload:// 短链接：检查缓存
     if (DiscourseImageUtils.isUploadUrlCached(url)) {
       final resolvedUrl = DiscourseImageUtils.getCachedUploadUrl(url);
       if (resolvedUrl != null) {
-        return _buildImageWidget(resolvedUrl, url, width, height, isEmoji, emojiTitle: emojiTitle);
+        return _buildImageWidget(resolvedUrl, url, width, height, isEmoji, isOnlyEmoji: isOnlyEmoji, emojiTitle: emojiTitle, emojiFontSize: emojiFontSize);
       }
       // 解析失败的 URL，显示错误图标
       return Icon(
@@ -114,22 +126,23 @@ class DiscourseWidgetFactory extends WidgetFactory {
           );
         }
 
-        return _buildImageWidget(snapshot.data, url, width, height, isEmoji, emojiTitle: emojiTitle);
+        return _buildImageWidget(snapshot.data, url, width, height, isEmoji, isOnlyEmoji: isOnlyEmoji, emojiTitle: emojiTitle, emojiFontSize: emojiFontSize);
       },
     );
   }
 
   /// 构建图片 widget（从缓存或 FutureBuilder 调用）
-  Widget _buildImageWidget(String? resolvedUrl, String originalUrl, double? width, double? height, bool isEmoji, {String? emojiTitle}) {
+  Widget _buildImageWidget(String? resolvedUrl, String originalUrl, double? width, double? height, bool isEmoji, {bool isOnlyEmoji = false, String? emojiTitle, double? emojiFontSize}) {
     // 检查是否是 SVG（处理带查询参数的 URL）
     final isSvg = _isSvgUrl(resolvedUrl) || _isSvgUrl(originalUrl);
 
-    if (isSvg && resolvedUrl != null) {
-      return _buildSvgWidget(resolvedUrl, width, height, isEmoji);
+    // SVG emoji 直接渲染，不需要画廊逻辑
+    if (isSvg && resolvedUrl != null && isEmoji) {
+      return _buildSvgWidget(resolvedUrl, width, height, true, isOnlyEmoji: isOnlyEmoji, emojiFontSize: emojiFontSize);
     }
 
     // 使用自定义的鉴权 ImageProvider（emoji 使用独立缓存池）
-    final imageProvider = resolvedUrl != null
+    final imageProvider = resolvedUrl != null && !isSvg
         ? (isEmoji ? emojiImageProvider(resolvedUrl) : discourseImageProvider(resolvedUrl))
         : null;
 
@@ -150,12 +163,27 @@ class DiscourseWidgetFactory extends WidgetFactory {
 
     return Builder(
       builder: (context) {
-        // 计算合适的 Emoji 尺寸
-        final double emojiSize = DefaultTextStyle.of(context).style.fontSize ?? 16.0;
-        final double displaySize = emojiSize * 1.2;
+        // 基准字号（1em，跟随 h1~h6、inline style 等缩放）
+        final double emojiBaseSize = emojiFontSize
+            ?? DefaultTextStyle.of(context).style.fontSize
+            ?? 16.0;
+        // only-emoji: 独立大表情 32dp（Discourse CSS: img.emoji.only-emoji { width: 32px; height: 32px }）
+        // 普通 emoji: 1em
+        final double displaySize = isOnlyEmoji ? 32.0 : emojiBaseSize;
 
         // 如果不是画廊图片（通常是 Emoji 或预览中的 upload:// 图片）
         if (!isGalleryImage || isEmoji) {
+           // SVG 非 emoji、非画廊图片：渲染 SVG 并支持长按菜单
+           if (isSvg && resolvedUrl != null) {
+             final svgWidget = _buildSvgWidget(resolvedUrl, width, height, false);
+             return GestureDetector(
+               onLongPress: () {
+                 _showImageContextMenu(context, resolvedUrl, heroTag);
+               },
+               child: svgWidget,
+             );
+           }
+
            Widget imageWidget = imageProvider != null
                ? Image(
                    image: imageProvider,
@@ -204,7 +232,10 @@ class DiscourseWidgetFactory extends WidgetFactory {
 
            if (isEmoji) {
              Widget emojiWidget = Container(
-               margin: const EdgeInsets.symmetric(horizontal: 2.0),
+               // only-emoji: 独立大表情添加垂直间距（Discourse CSS: margin: .5em 0）
+               margin: isOnlyEmoji
+                   ? EdgeInsets.symmetric(vertical: emojiBaseSize * 0.5, horizontal: 1.0)
+                   : const EdgeInsets.symmetric(horizontal: 2.0),
                child: imageWidget,
              );
              // 用 SelectableAdapter 包裹，使 emoji 参与文本选择
@@ -231,6 +262,28 @@ class DiscourseWidgetFactory extends WidgetFactory {
 
         // 画廊图片处理
         Widget buildGalleryImage() {
+          // SVG 画廊图片：用 _buildSvgWidget 渲染，包裹点击/长按手势
+          if (isSvg && resolvedUrl != null) {
+            final svgWidget = _buildSvgWidget(resolvedUrl, width, height, false);
+            return GestureDetector(
+              onTap: () {
+                DiscourseImageUtils.openViewerFiltered(
+                  context: context,
+                  galleryInfo: galleryInfo!,
+                  revealedImageUrls: revealedImageUrls,
+                  imageUrl: resolvedUrl,
+                  heroTag: heroTag,
+                  fullGalleryIndex: galleryIndex,
+                  thumbnailUrl: resolvedUrl,
+                );
+              },
+              onLongPress: () {
+                _showImageContextMenu(context, resolvedUrl, heroTag);
+              },
+              child: svgWidget,
+            );
+          }
+
           if (imageProvider == null) {
             // URL 解析中，显示占位符
             final screenWidth = MediaQuery.of(context).size.width;
@@ -350,107 +403,60 @@ class DiscourseWidgetFactory extends WidgetFactory {
 
   /// 构建 SVG 图片 widget
   ///
-  /// 使用内存缓存避免每次 build 都重新执行 getSingleFile() 的 SQLite 查询。
-  /// 缓存和 DiscourseWidgetFactory 实例同生命周期（跟随 DiscourseHtmlContent State）。
-  Widget _buildSvgWidget(String url, double? width, double? height, bool isEmoji) {
-    return Builder(
-      builder: (context) {
-        final emojiSize = (DefaultTextStyle.of(context).style.fontSize ?? 16.0) * 1.2;
+  /// 使用 FutureBuilder + 缓存 Future，确保异步加载完成后自动刷新显示。
+  /// Future 缓存和 DiscourseWidgetFactory 实例同生命周期（跟随 DiscourseHtmlContent State）。
+  Widget _buildSvgWidget(String url, double? width, double? height, bool isEmoji, {bool isOnlyEmoji = false, double? emojiFontSize}) {
+    final future = _svgFutures.putIfAbsent(url, () => _loadSvg(url));
 
-        // 命中缓存则直接渲染
-        final cached = _svgCache[url];
-        if (cached != null) {
+    return FutureBuilder<ScalableImage?>(
+      future: future,
+      builder: (context, snapshot) {
+        // 基准字号（1em）
+        final emojiBaseSize = emojiFontSize
+            ?? DefaultTextStyle.of(context).style.fontSize
+            ?? 16.0;
+        // only-emoji: 独立大表情 32dp; 普通 emoji: 1em
+        final emojiSize = isOnlyEmoji ? 32.0 : emojiBaseSize;
+
+        final si = snapshot.data;
+        if (si != null) {
           if (isEmoji) {
             return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 2.0),
+              margin: isOnlyEmoji
+                  ? EdgeInsets.symmetric(vertical: emojiBaseSize * 0.5, horizontal: 1.0)
+                  : const EdgeInsets.symmetric(horizontal: 2.0),
               child: SizedBox(
                 width: emojiSize,
                 height: emojiSize,
-                child: SvgPicture.string(cached.content, fit: BoxFit.contain),
+                child: ScalableImageWidget(si: si, fit: BoxFit.contain),
               ),
             );
           }
-          return SvgPicture.string(
-            cached.content,
-            width: cached.width ?? width,
-            height: cached.height ?? height,
-            fit: BoxFit.contain,
+          // 非 emoji SVG 图片：使用 ScalableImage 自带的 viewport 尺寸
+          final siWidth = width ?? si.viewport.width;
+          final siHeight = height ?? si.viewport.height;
+          return SizedBox(
+            width: siWidth,
+            height: siHeight,
+            child: ScalableImageWidget(si: si, fit: BoxFit.contain),
           );
         }
 
-        // 异步加载并缓存
-        _loadSvg(url);
-
-        // 占位
+        // 加载中或失败：占位
         final size = isEmoji ? emojiSize : (width ?? 24.0);
         return SizedBox(width: size, height: isEmoji ? emojiSize : (height ?? 24.0));
       },
     );
   }
 
-  /// 异步加载 SVG 文件内容到缓存
-  Future<void> _loadSvg(String url) async {
-    if (_svgLoading.contains(url)) return;
-    _svgLoading.add(url);
-
+  /// 异步加载 SVG 文件并解析为 ScalableImage
+  Future<ScalableImage?> _loadSvg(String url) async {
     try {
       final file = await DiscourseCacheManager().getSingleFile(url);
-      var content = await file.readAsString();
-      final svgWidth = _parseSvgDimension(content, 'width');
-      final svgHeight = _parseSvgDimension(content, 'height');
-      content = _fixSvgTextScale(content);
-
-      _svgCache[url] = _SvgCacheEntry(content: content, width: svgWidth, height: svgHeight);
+      final content = await file.readAsString();
+      return ScalableImage.fromSvgString(content, warnF: (_) {});
     } catch (_) {
-      // 加载失败不缓存，下次重试
-    } finally {
-      _svgLoading.remove(url);
+      return null;
     }
   }
-
-  /// 修复 SVG 中 text 元素的 scale 变换问题
-  String _fixSvgTextScale(String svg) {
-    // 匹配 font-size="110" 这样的大字体
-    final fontSizeMatch = RegExp(r'font-size="(\d+)"').firstMatch(svg);
-    if (fontSizeMatch == null) return svg;
-
-    final fontSize = int.tryParse(fontSizeMatch.group(1)!) ?? 0;
-    if (fontSize <= 20) return svg; // 正常字体大小，不需要修复
-
-    // 查找 scale 变换
-    final scaleMatch = RegExp(r'transform="scale\(\.(\d+)\)"').firstMatch(svg);
-    if (scaleMatch == null) return svg;
-
-    final scaleValue = double.tryParse('0.${scaleMatch.group(1)}') ?? 1.0;
-    final newFontSize = (fontSize * scaleValue).round();
-
-    // 替换字体大小并移除 scale 变换
-    svg = svg.replaceAll('font-size="$fontSize"', 'font-size="$newFontSize"');
-    svg = svg.replaceAll(RegExp(r' transform="scale\(\.\d+\)"'), '');
-
-    // 修复 text 元素的坐标（也需要缩放）
-    svg = svg.replaceAllMapped(RegExp(r'<text([^>]*) x="(\d+)"([^>]*) y="(\d+)"'), (m) {
-      final x = ((int.tryParse(m.group(2)!) ?? 0) * scaleValue).round();
-      final y = ((int.tryParse(m.group(4)!) ?? 0) * scaleValue).round();
-      return '<text${m.group(1)} x="$x"${m.group(3)} y="$y"';
-    });
-
-    return svg;
-  }
-
-  /// 从 SVG 内容解析尺寸属性
-  double? _parseSvgDimension(String svg, String attr) {
-    final match = RegExp('$attr="(d+(?:.d+)?)"').firstMatch(svg);
-    if (match != null) return double.tryParse(match.group(1)!);
-    return null;
-  }
-}
-
-/// SVG 内容缓存条目
-class _SvgCacheEntry {
-  final String content;
-  final double? width;
-  final double? height;
-
-  const _SvgCacheEntry({required this.content, this.width, this.height});
 }

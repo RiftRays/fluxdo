@@ -1,3 +1,65 @@
+## v0.1.46
+
+- ✨ 支持开关滚动收起导航栏
+
+- ✨ 启动页优化，防止一些极端场景卡启动页
+
+- 🐛 修复邀请链接显示与限频提示 (#129)
+
+- * Fix invite link visibility and pending fetch
+
+- * 邀请链接缓存与提示优化
+
+- * 邀请错误提示与空态优化
+
+- ---------
+
+- Co-authored-by: N1nEmAn <S3vn@S3vn.localdomain>
+
+## v0.1.46-beta.2
+
+- ✨ 稍后阅读功能，refs #115
+
+- ✨ 书签功能优化，refs #115
+
+- ✨ SVG 渲染优化，close #126
+
+- ✨ 优化过盾逻辑
+
+- ✨ 异形屏横屏适配，close #110
+
+## v0.1.46-beta.1
+
+- ✨ Token 变更日志
+
+- ✨ 更详情的退出日志
+
+## v0.1.45
+
+- 🚑️ 修复 CF 过盾异常
+
+## v0.1.44
+
+- 🐛 修复话题详情到底还会继续触发加载的问题
+
+- 🚑️ 修复 CF 盾后无法进入页面
+
+## v0.1.43
+
+- ✨ 一些功能优化
+
+- Add invite links and remember AI model selection (#120)
+
+- Co-authored-by: N1nEmAn <S3vn@S3vn.localdomain>
+
+- 🐛 修复了一些问题，ref #116
+
+- ✨ 元宇宙功能优化
+
+- ✨ 网络添加会话代守卫拦截器，提升应用稳定性
+
+- ✨ 过盾体验优化
+
 ## v0.1.42
 
 - ✨ 应用日志功能优化

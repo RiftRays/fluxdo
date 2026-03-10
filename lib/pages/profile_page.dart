@@ -25,6 +25,7 @@ import '../providers/app_state_refresher.dart';
 import 'metaverse_page.dart';
 import 'package:ai_model_manager/ai_model_manager.dart';
 import 'drafts_page.dart';
+import 'invite_links_page.dart';
 import '../providers/ldc_providers.dart';
 import '../widgets/ldc_balance_card.dart';
 import '../providers/cdk_providers.dart';
@@ -56,7 +57,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     _scrollController.addListener(_onScroll);
   }
 
-  /// 下拉刷新（显示 loading 指示器）
+  /// 下拉刷新
+  /// 注意：LDC/CDK provider 的 build() 中 ref.watch(currentUserProvider) 会在
+  /// currentUser 刷新后自动重建，无需显式调用 refresh()，否则会触发两次 loading
   Future<void> _refreshData() async {
     if (!mounted) return;
     setState(() => _isRefreshing = true);
@@ -159,7 +162,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     if (!mounted) return;
     final result = await service.authorize(context);
     if (result && mounted) {
-      await ref.read(ldcUserInfoProvider.notifier).clear();
       ref.read(ldcUserInfoProvider.notifier).refresh();
       ToastService.showSuccess('LDC 重新授权成功');
     }
@@ -175,7 +177,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     if (!mounted) return;
     final result = await service.authorize(context);
     if (result && mounted) {
-      await ref.read(cdkUserInfoProvider.notifier).clear();
       ref.read(cdkUserInfoProvider.notifier).refresh();
       ToastService.showSuccess('CDK 重新授权成功');
     }
@@ -332,8 +333,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 final ldcState = ref.watch(ldcUserInfoProvider);
                 final cdkState = ref.watch(cdkUserInfoProvider);
 
-                final showLdc = (ldcState.hasError && !ldcState.hasValue) || ldcState.value != null;
-                final showCdk = (cdkState.hasError && !cdkState.hasValue) || cdkState.value != null;
+                final showLdc = ldcState.isLoading || ldcState.hasError || ldcState.value != null;
+                final showCdk = cdkState.isLoading || cdkState.hasError || cdkState.value != null;
 
                 if (!showLdc && !showCdk) return const SizedBox.shrink();
 
@@ -367,7 +368,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             ),
 
             if (isLoggedIn) ...[
-              _buildOptionsCard(theme),
+              _buildOptionsCard(
+                theme,
+                canAccessInviteLinks: (user?.trustLevel ?? 0) >= 3,
+              ),
               const SizedBox(height: 20),
             ],
             _buildAboutCard(theme),
@@ -460,7 +464,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
-  Widget _buildOptionsCard(ThemeData theme) {
+  Widget _buildOptionsCard(ThemeData theme, {required bool canAccessInviteLinks}) {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
@@ -498,6 +502,16 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             title: '信任要求', 
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TrustLevelRequirementsPage()))
           ),
+          if (canAccessInviteLinks)
+            _buildOptionTile(
+              icon: Icons.link_rounded,
+              iconColor: Colors.cyan,
+              title: '邀请链接',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const InviteLinksPage()),
+              ),
+            ),
           _buildOptionTile(
             icon: Icons.history_rounded,
             iconColor: Colors.purple,

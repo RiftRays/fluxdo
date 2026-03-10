@@ -5,6 +5,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/preferences_provider.dart';
 import '../services/credential_store_service.dart';
+import '../services/auth_session.dart';
 import '../services/discourse/discourse_service.dart';
 import '../services/preloaded_data_service.dart';
 import '../services/network/cookie/cookie_jar_service.dart';
@@ -275,10 +276,14 @@ class _WebViewLoginPageState extends ConsumerState<WebViewLoginPage> {
     } catch (_) {}
     // 登录后从 WebView 同步所有 Cookie 到 CookieJar（包括 _t、cf_clearance 等）
     await _cookieJar.syncFromWebView();
-    // 更新内存状态并通知监听者
-    _service.onLoginSuccess(tToken);
-    // 登录后重新加载预热数据
+    // 切断旧的匿名请求
+    AuthSession().advance();
+    // 仅设置 token，暂不广播
+    _service.setToken(tToken);
+    // 先刷新预加载数据（确保 longPollingBaseUrl 等就绪）
     await PreloadedDataService().refresh();
+    // 数据就绪后再广播（触发 provider rebuild + MessageBus 初始化）
+    _service.onLoginSuccess(tToken);
 
     // 记录登录日志
     LogWriter.instance.write({

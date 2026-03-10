@@ -1,5 +1,7 @@
 import 'package:ai_model_manager/ai_model_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import '../../services/app_error_handler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
@@ -39,7 +41,10 @@ import 'widgets/topic_detail_header.dart';
 import '../../widgets/layout/master_detail_layout.dart';
 import '../../widgets/share/share_image_preview.dart';
 import '../../widgets/share/export_sheet.dart';
+import '../../widgets/bookmark/bookmark_edit_sheet.dart';
 import '../../widgets/search/topic_search_view.dart';
+import '../../providers/read_later_provider.dart';
+import '../../models/read_later_item.dart';
 import '../../providers/topic_search_provider.dart';
 import '../edit_topic_page.dart';
 import 'widgets/ai_chat_page.dart';
@@ -485,7 +490,9 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> with WidgetsB
           } else if (value == 'edit_topic') {
             _handleEditTopic();
           } else if (value == 'bookmark') {
-            _handleToggleBookmark(notifier);
+            _handleBookmark(notifier);
+          } else if (value == 'read_later') {
+            _handleReadLater();
           }
         },
         itemBuilder: (context) => [
@@ -518,8 +525,30 @@ class _TopicDetailPageState extends ConsumerState<TopicDetailPage> with WidgetsB
                       : Theme.of(context).colorScheme.onSurface,
                 ),
                 const SizedBox(width: 12),
-                Text(detail.bookmarked ? '取消书签' : '添加书签'),
+                Text(detail.bookmarked ? '编辑书签' : '添加书签'),
               ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'read_later',
+            child: Builder(
+              builder: (context) {
+                final isInReadLater = ref.read(readLaterProvider.notifier).contains(widget.topicId);
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isInReadLater ? Icons.layers : Icons.layers_outlined,
+                      size: 20,
+                      color: isInReadLater
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.onSurface,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(isInReadLater ? '移出浮窗' : '加入浮窗'),
+                  ],
+                );
+              },
             ),
           ),
           PopupMenuItem(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../pages/topics_page.dart';
+import '../../providers/preferences_provider.dart';
 import '../../utils/responsive.dart';
 import 'adaptive_navigation.dart';
 
@@ -36,7 +37,10 @@ class AdaptiveScaffold extends ConsumerWidget {
     final showRail = Responsive.showNavigationRail(context);
 
     // 始终 watch barVisibilityProvider，避免条件 watch 导致 Riverpod 行为不一致
-    final visibility = selectedIndex == 0
+    final hideBarOnScroll = ref.watch(
+      preferencesProvider.select((p) => p.hideBarOnScroll),
+    );
+    final visibility = (selectedIndex == 0 && hideBarOnScroll)
         ? ref.watch(barVisibilityProvider)
         : 1.0;
 

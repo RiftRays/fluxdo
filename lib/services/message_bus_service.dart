@@ -440,6 +440,12 @@ class MessageBusService {
     }
   }
 
+  /// 停止轮询并清除所有订阅（登出时直接调用，不依赖 provider 链）
+  void stopAll() {
+    _stopPolling();
+    _subscriptions.clear();
+  }
+
   /// 释放资源
   void dispose() {
     _stopPolling();

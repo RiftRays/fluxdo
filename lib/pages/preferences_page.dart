@@ -44,6 +44,21 @@ class PreferencesPage extends ConsumerWidget {
                 ),
                 Divider(height: 1, indent: 56, color: theme.colorScheme.outlineVariant.withValues(alpha:0.3)),
                 SwitchListTile(
+                  title: const Text('滚动收起导航栏'),
+                  subtitle: const Text('首页滚动时自动收起顶栏和底栏'),
+                  secondary: Icon(
+                    Icons.swap_vert_rounded,
+                    color: preferences.hideBarOnScroll
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  value: preferences.hideBarOnScroll,
+                  onChanged: (value) {
+                    ref.read(preferencesProvider.notifier).setHideBarOnScroll(value);
+                  },
+                ),
+                Divider(height: 1, indent: 56, color: theme.colorScheme.outlineVariant.withValues(alpha:0.3)),
+                SwitchListTile(
                   title: const Text('外部链接使用内置浏览器'),
                   subtitle: const Text('贴内外部链接优先在应用内打开'),
                   secondary: Icon(

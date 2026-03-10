@@ -23,6 +23,8 @@ class AppPreferences {
   final bool crashlytics;
   /// 竖屏锁定
   final bool portraitLock;
+  /// 滚动时收起顶栏和底栏
+  final bool hideBarOnScroll;
 
   const AppPreferences({
     required this.autoPanguSpacing,
@@ -35,6 +37,7 @@ class AppPreferences {
     required this.autoFillLogin,
     required this.crashlytics,
     required this.portraitLock,
+    required this.hideBarOnScroll,
   });
 
   AppPreferences copyWith({
@@ -48,6 +51,7 @@ class AppPreferences {
     bool? autoFillLogin,
     bool? crashlytics,
     bool? portraitLock,
+    bool? hideBarOnScroll,
   }) {
     return AppPreferences(
       autoPanguSpacing: autoPanguSpacing ?? this.autoPanguSpacing,
@@ -61,6 +65,7 @@ class AppPreferences {
       autoFillLogin: autoFillLogin ?? this.autoFillLogin,
       crashlytics: crashlytics ?? this.crashlytics,
       portraitLock: portraitLock ?? this.portraitLock,
+      hideBarOnScroll: hideBarOnScroll ?? this.hideBarOnScroll,
     );
   }
 }
@@ -77,6 +82,7 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
   static const String _autoFillLoginKey = 'pref_auto_fill_login';
   static const String _crashlyticsKey = 'pref_crashlytics';
   static const String _portraitLockKey = 'pref_portrait_lock';
+  static const String _hideBarOnScrollKey = 'pref_hide_bar_on_scroll';
 
   static const _crashlyticsChannel =
       MethodChannel('com.github.lingyan000.fluxdo/crashlytics');
@@ -95,6 +101,7 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
             autoFillLogin: _prefs.getBool(_autoFillLoginKey) ?? true,
             crashlytics: _prefs.getBool(_crashlyticsKey) ?? false,
             portraitLock: _prefs.getBool(_portraitLockKey) ?? false,
+            hideBarOnScroll: _prefs.getBool(_hideBarOnScrollKey) ?? true,
           ),
         ) {
     isPortraitLocked = state.portraitLock;
@@ -167,6 +174,11 @@ class PreferencesNotifier extends StateNotifier<AppPreferences> {
     } else {
       await SystemChrome.setPreferredOrientations([]);
     }
+  }
+
+  Future<void> setHideBarOnScroll(bool enabled) async {
+    state = state.copyWith(hideBarOnScroll: enabled);
+    await _prefs.setBool(_hideBarOnScrollKey, enabled);
   }
 
   /// 当前竖屏锁定状态（供视频播放器等无法访问 ref 的组件使用）

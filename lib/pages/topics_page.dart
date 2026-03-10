@@ -59,6 +59,29 @@ const _tabRowHeight = 36.0;
 const _sortBarHeight = 44.0;
 const _collapsibleHeight = _searchBarHeight + _sortBarHeight; // 100
 
+/// 阻止外层滚动的 ScrollPhysics，所有滑动增量转给内层列表。
+class _NoOuterScrollPhysics extends ScrollPhysics {
+  const _NoOuterScrollPhysics({super.parent});
+
+  @override
+  _NoOuterScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _NoOuterScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  double applyBoundaryConditions(ScrollMetrics position, double value) {
+    // 将全部增量当作越界返回，外层 position 不发生位移
+    return value - position.pixels;
+  }
+
+  @override
+  Simulation? createBallisticSimulation(
+      ScrollMetrics position, double velocity) {
+    // 禁止惯性动画，防止松手后外层回弹
+    return null;
+  }
+}
+
 /// 暴露 forcePixels 用于 snap 动画的扩展。
 /// 使用 forcePixels 而非 animateTo，避免触发 NestedScrollView coordinator
 /// 的 beginActivity/goIdle 导致内部列表位置重置。
@@ -402,6 +425,16 @@ class _TopicsPageState extends ConsumerState<TopicsPage> with TickerProviderStat
       _invalidateTopicTabs(pinnedIds);
     });
 
+    // 关闭滚动折叠时，复位外层滚动到顶部
+    ref.listen(preferencesProvider.select((p) => p.hideBarOnScroll), (prev, next) {
+      if (!next &&
+          _outerScrollController.hasClients &&
+          _outerScrollController.positions.length == 1 &&
+          _outerScrollController.offset > 0) {
+        _outerScrollController.position.snapToPixels(0);
+      }
+    });
+
     // 监听滚动到顶部的通知
     ref.listen(scrollToTopProvider, (previous, next) {
       ref.read(fabRefreshModeProvider.notifier).state = false;
@@ -432,6 +465,9 @@ class _TopicsPageState extends ConsumerState<TopicsPage> with TickerProviderStat
           child: ExtendedNestedScrollView(
           controller: _outerScrollController,
           floatHeaderSlivers: true,
+          physics: ref.watch(preferencesProvider.select((p) => p.hideBarOnScroll))
+              ? null
+              : const _NoOuterScrollPhysics(),
           pinnedHeaderSliverHeightBuilder: () => topPadding + _tabRowHeight,
           onlyOneScrollInBody: true,
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
@@ -447,6 +483,7 @@ class _TopicsPageState extends ConsumerState<TopicsPage> with TickerProviderStat
                 currentFilter: currentFilter,
                 currentTags: currentTags,
                 currentCategory: currentCategory,
+                hideBarOnScroll: ref.watch(preferencesProvider).hideBarOnScroll,
                 onFilterChanged: (filter) {
                   ref.read(topicFilterProvider.notifier).setFilter(filter);
                 },
@@ -566,6 +603,15 @@ class _TopicsPageState extends ConsumerState<TopicsPage> with TickerProviderStat
     if (!_outerScrollController.hasClients) return;
     if (_outerScrollController.positions.length != 1) return;
     final offset = _outerScrollController.offset;
+
+    // 关闭折叠时，始终吸附到顶部
+    if (!ref.read(preferencesProvider).hideBarOnScroll) {
+      if (offset > 0) {
+        _outerScrollController.position.snapToPixels(0);
+      }
+      return;
+    }
+
     if (offset <= 0 || offset >= _collapsibleHeight) return;
 
     final target = offset > _collapsibleHeight / 2 ? _collapsibleHeight : 0.0;
@@ -625,6 +671,7 @@ class _TopicsHeaderDelegate extends SliverPersistentHeaderDelegate {
   final VoidCallback onSearch;
   final VoidCallback onDebugTopicId;
   final Widget? trailing;
+  final bool hideBarOnScroll;
 
   _TopicsHeaderDelegate({
     required this.statusBarHeight,
@@ -643,6 +690,7 @@ class _TopicsHeaderDelegate extends SliverPersistentHeaderDelegate {
     required this.onSearch,
     required this.onDebugTopicId,
     this.trailing,
+    this.hideBarOnScroll = true,
   });
 
   @override
@@ -661,7 +709,8 @@ class _TopicsHeaderDelegate extends SliverPersistentHeaderDelegate {
         currentFilter != oldDelegate.currentFilter ||
         currentTags != oldDelegate.currentTags ||
         currentCategory != oldDelegate.currentCategory ||
-        trailing != oldDelegate.trailing;
+        trailing != oldDelegate.trailing ||
+        hideBarOnScroll != oldDelegate.hideBarOnScroll;
   }
 
   @override
@@ -673,7 +722,9 @@ class _TopicsHeaderDelegate extends SliverPersistentHeaderDelegate {
     final sortProgress = ((clampedOffset - _searchBarHeight) / _sortBarHeight).clamp(0.0, 1.0);
 
     // 更新 barVisibility（仅在值变化时才更新，避免快速滚动时的帧级联重建）
-    final visibility = (1.0 - clampedOffset / _collapsibleHeight).clamp(0.0, 1.0);
+    final visibility = hideBarOnScroll
+        ? (1.0 - clampedOffset / _collapsibleHeight).clamp(0.0, 1.0)
+        : 1.0;
     final container = ProviderScope.containerOf(context, listen: false);
     final current = container.read(barVisibilityProvider);
     if ((visibility - current).abs() > 0.01) {

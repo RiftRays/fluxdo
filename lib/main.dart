@@ -28,6 +28,7 @@ import 'services/network/doh/network_settings_service.dart';
 import 'services/network/proxy/proxy_settings_service.dart';
 import 'services/network/doh_proxy/proxy_certificate.dart';
 import 'services/cf_challenge_logger.dart';
+import 'services/cf_clearance_refresh_service.dart';
 import 'services/update_service.dart';
 import 'services/update_checker_helper.dart';
 import 'services/deep_link_service.dart';
@@ -50,6 +51,8 @@ import 'widgets/preheat_gate.dart';
 import 'widgets/onboarding_gate.dart';
 import 'widgets/layout/adaptive_scaffold.dart';
 import 'widgets/layout/adaptive_navigation.dart';
+import 'widgets/read_later/read_later_bubble.dart';
+import 'providers/read_later_provider.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -272,7 +275,12 @@ class MainApp extends ConsumerWidget {
                 // 关闭系统自动 scrim，实现完全沉浸
                 systemNavigationBarContrastEnforced: false,
               ),
-              child: child!,
+              child: Stack(
+                children: [
+                  child!,
+                  const ReadLaterBubble(),
+                ],
+              ),
             );
           },
           home: const OnboardingGate(
@@ -315,6 +323,8 @@ class _MainPageState extends ConsumerState<MainPage> with WidgetsBindingObserver
 
     // 设置导航 context（用于 CF 验证弹窗）
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // 标记应用已就绪（MainPage 在 PreheatGate 之后才挂载）
+      ref.read(appReadyProvider.notifier).state = true;
       DiscourseService().setNavigatorContext(context);
       PreloadedDataService().setNavigatorContext(context);
 
@@ -433,6 +443,7 @@ class _MainPageState extends ConsumerState<MainPage> with WidgetsBindingObserver
       _resumeDebounceTimer?.cancel();
       _resumeDebounceTimer = null;
       _enterBackground();
+      CfClearanceRefreshService().pause();
     } else if (state == AppLifecycleState.resumed) {
       // 延迟执行，避免系统配置变更（主题切换等）触发的假 resume
       _resumeDebounceTimer?.cancel();
@@ -445,6 +456,8 @@ class _MainPageState extends ConsumerState<MainPage> with WidgetsBindingObserver
         ref.invalidate(notificationListProvider);
         // 回到前台时主动检查连通性（等同 Discourse 的 visibilitychange）
         ConnectivityService().check();
+        // 恢复 cf_clearance 自动续期监控
+        CfClearanceRefreshService().resume();
       });
     }
   }

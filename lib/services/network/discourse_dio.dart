@@ -9,6 +9,7 @@ import 'cookie/cookie_jar_service.dart';
 import 'cookie/cookie_sync_service.dart';
 import 'interceptors/cf_challenge_interceptor.dart';
 import 'interceptors/request_scheduler_interceptor.dart';
+import 'interceptors/session_guard_interceptor.dart';
 import 'interceptors/cronet_fallback_interceptor.dart';
 import 'interceptors/error_interceptor.dart';
 import 'interceptors/network_log_interceptor.dart';
@@ -42,7 +43,10 @@ class DiscourseDio {
     // 1. 配置平台适配器
     configurePlatformAdapter(dio);
 
-    // 2. 并发限制（null 表示不限制）
+    // 2. 会话代守卫（最先执行，确保过期请求不进入后续拦截器）
+    dio.interceptors.add(SessionGuardInterceptor());
+
+    // 3. 并发限制（null 表示不限制）
     if (maxConcurrent != null) {
       dio.interceptors.add(RequestSchedulerInterceptor(
         maxConcurrent: maxConcurrent,
@@ -51,16 +55,16 @@ class DiscourseDio {
       ));
     }
 
-    // 3. Cookie 管理
+    // 4. Cookie 管理
     final cookieJarService = CookieJarService();
     if (cookieJarService.isInitialized) {
       dio.interceptors.add(AppCookieManager(cookieJarService.cookieJar));
     }
 
-    // 4. Cronet 降级拦截器（在重试拦截器之前）
+    // 5. Cronet 降级拦截器（在重试拦截器之前）
     dio.interceptors.add(CronetFallbackInterceptor(dio));
 
-    // 5. 重试拦截器 (dio_smart_retry)
+    // 6. 重试拦截器 (dio_smart_retry)
     if (enableRetry) {
       dio.interceptors.add(RetryInterceptor(
         dio: dio,
@@ -75,16 +79,16 @@ class DiscourseDio {
       ));
     }
 
-    // 6. 请求头拦截器
+    // 7. 请求头拦截器
     dio.interceptors.add(RequestHeaderInterceptor(CookieSyncService()));
 
-    // 7. 重定向拦截器
+    // 8. 重定向拦截器
     dio.interceptors.add(RedirectInterceptor(dio));
 
-    // 8. 错误拦截器
+    // 9. 错误拦截器
     dio.interceptors.add(ErrorInterceptor());
 
-    // 9. CF 验证拦截器
+    // 10. CF 验证拦截器
     if (enableCfChallenge) {
       dio.interceptors.add(CfChallengeInterceptor(
         dio: dio,
@@ -92,7 +96,7 @@ class DiscourseDio {
       ));
     }
 
-    // 10. 网络日志拦截器（最后一个，记录最终结果）
+    // 11. 网络日志拦截器（最后一个，记录最终结果）
     dio.interceptors.add(NetworkLogInterceptor());
 
     return dio;

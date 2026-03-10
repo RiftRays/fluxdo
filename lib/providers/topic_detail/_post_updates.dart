@@ -135,19 +135,8 @@ extension PostUpdateMethods on TopicDetailNotifier {
       newStream.add(post.id);
     }
 
-    // 本地递增被回复帖子的 replyCount
-    List<Post> updatedPosts = currentPosts;
-    if (post.replyToPostNumber > 0) {
-      updatedPosts = currentPosts.map((p) {
-        if (p.postNumber == post.replyToPostNumber) {
-          return p.copyWith(replyCount: p.replyCount + 1);
-        }
-        return p;
-      }).toList();
-    }
-
     if (!_hasMoreAfter) {
-      final newPosts = [...updatedPosts, post];
+      final newPosts = [...currentPosts, post];
       newPosts.sort((a, b) => a.postNumber.compareTo(b.postNumber));
 
       final newPostsCount = currentDetail.postsCount + 1;
@@ -156,14 +145,33 @@ extension PostUpdateMethods on TopicDetailNotifier {
         postsCount: newPostsCount,
         postStream: PostStream(posts: newPosts, stream: newStream, gaps: currentDetail.postStream.gaps),
       ));
+
+      // 从 API 刷新被回复帖子以获取正确的 replyCount（避免与 MessageBus 路径重复递增）
+      if (post.replyToPostNumber > 0) {
+        _refreshReplyTarget(post.replyToPostNumber);
+      }
+
       return true;
     } else {
       state = AsyncValue.data(currentDetail.copyWith(
         postsCount: currentDetail.postsCount + 1,
-        postStream: PostStream(posts: updatedPosts, stream: newStream, gaps: currentDetail.postStream.gaps),
+        postStream: PostStream(posts: currentPosts, stream: newStream, gaps: currentDetail.postStream.gaps),
       ));
       return false;
     }
+  }
+
+  /// 从 API 刷新被回复帖子，获取正确的 replyCount
+  void _refreshReplyTarget(int replyToPostNumber) {
+    final currentDetail = state.value;
+    if (currentDetail == null) return;
+
+    final posts = currentDetail.postStream.posts;
+    final index = posts.indexWhere((p) => p.postNumber == replyToPostNumber);
+    if (index == -1) return;
+    final targetPost = posts[index];
+
+    refreshPost(targetPost.id);
   }
 
   /// 更新已存在的帖子（用于编辑后直接更新）
@@ -260,30 +268,53 @@ extension PostUpdateMethods on TopicDetailNotifier {
     ));
   }
 
-  /// 切换话题书签状态
-  Future<void> toggleTopicBookmark() async {
+  /// 添加话题书签
+  Future<int> addTopicBookmark() async {
+    final currentDetail = state.value;
+    if (currentDetail == null) throw Exception('话题详情为空');
+
+    final service = ref.read(discourseServiceProvider);
+    final newBookmarkId = await service.bookmarkTopic(currentDetail.id);
+    if (!ref.mounted) throw Exception('Provider 已销毁');
+
+    state = AsyncValue.data(currentDetail.copyWith(
+      bookmarked: true,
+      bookmarkId: newBookmarkId,
+    ));
+    return newBookmarkId;
+  }
+
+  /// 删除话题书签
+  Future<void> removeTopicBookmark() async {
     final currentDetail = state.value;
     if (currentDetail == null) return;
 
-    final service = ref.read(discourseServiceProvider);
+    final bookmarkId = currentDetail.bookmarkId;
+    if (bookmarkId == null) return;
 
-    if (currentDetail.bookmarked) {
-      final bookmarkId = currentDetail.bookmarkId;
-      if (bookmarkId == null) return;
-      await service.deleteBookmark(bookmarkId);
-      if (!ref.mounted) return;
-      state = AsyncValue.data(currentDetail.copyWith(
-        bookmarked: false,
-        clearBookmarkId: true,
-      ));
-    } else {
-      final newBookmarkId = await service.bookmarkTopic(currentDetail.id);
-      if (!ref.mounted) return;
-      state = AsyncValue.data(currentDetail.copyWith(
-        bookmarked: true,
-        bookmarkId: newBookmarkId,
-      ));
-    }
+    final service = ref.read(discourseServiceProvider);
+    await service.deleteBookmark(bookmarkId);
+    if (!ref.mounted) return;
+
+    state = AsyncValue.data(currentDetail.copyWith(
+      bookmarked: false,
+      clearBookmarkId: true,
+      clearBookmarkName: true,
+      clearBookmarkReminderAt: true,
+    ));
+  }
+
+  /// 更新话题书签元数据（本地状态）
+  void updateTopicBookmarkMeta({String? name, DateTime? reminderAt, bool clearName = false, bool clearReminderAt = false}) {
+    final currentDetail = state.value;
+    if (currentDetail == null) return;
+
+    state = AsyncValue.data(currentDetail.copyWith(
+      bookmarkName: name,
+      bookmarkReminderAt: reminderAt,
+      clearBookmarkName: clearName,
+      clearBookmarkReminderAt: clearReminderAt,
+    ));
   }
 
   /// 重新加载话题元数据（只更新元数据，不刷新帖子流）
