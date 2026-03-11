@@ -1338,6 +1338,13 @@ packages:
       relative: true
     source: path
     version: "1.0.0"
+  paper_shaders:
+    dependency: "direct main"
+    description:
+      path: "packages/paper_shaders"
+      relative: true
+    source: path
+    version: "0.0.1"
   path:
     dependency: "direct main"
     description:

@@ -241,13 +241,8 @@ class TopicCard extends ConsumerWidget {
             ),
             // 底部附属区域
             if (bottomWidget != null)
-              Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                ),
-                // 左侧 56 = 头像区 12+34+10，与主内容文字起始对齐
-                padding: const EdgeInsets.fromLTRB(56, 6, 14, 6),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(56, 2, 14, 8),
                 child: bottomWidget!,
               ),
           ],

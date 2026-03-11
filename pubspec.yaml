@@ -1,7 +1,7 @@
 name: fluxdo
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.46+2026031022
+version: 0.1.47+2026031120
 
 environment:
   sdk: ^3.10.4
@@ -45,6 +45,8 @@ dependencies:
     path: packages/pangutext
   ai_model_manager:
     path: packages/ai_model_manager
+  paper_shaders:
+    path: packages/paper_shaders
   flutter_local_notifications: ^19.5.0
   jovial_svg: ^1.1.29
   html: ^0.15.5
@@ -95,6 +97,7 @@ flutter:
     - assets/logo.svg
     - assets/images/
     - assets/certs/
+
 
 
 

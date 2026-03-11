@@ -95,7 +95,9 @@ class GalleryInfo {
       if (href == null || href.isEmpty) continue;
 
       var originalUrl = href;
-      if (originalUrl.startsWith('/') && !originalUrl.startsWith('//')) {
+      if (originalUrl.startsWith('//')) {
+        originalUrl = 'https:$originalUrl';
+      } else if (originalUrl.startsWith('/')) {
         originalUrl = '${AppConstants.baseUrl}$originalUrl';
       }
 
@@ -105,10 +107,12 @@ class GalleryInfo {
       // 缩略图 URL：从内部 img 的 src 获取
       final img = anchor.querySelector('img');
       var thumbnailUrl = img?.attributes['src'];
-      if (thumbnailUrl != null &&
-          thumbnailUrl.startsWith('/') &&
-          !thumbnailUrl.startsWith('//')) {
-        thumbnailUrl = '${AppConstants.baseUrl}$thumbnailUrl';
+      if (thumbnailUrl != null) {
+        if (thumbnailUrl.startsWith('//')) {
+          thumbnailUrl = 'https:$thumbnailUrl';
+        } else if (thumbnailUrl.startsWith('/')) {
+          thumbnailUrl = '${AppConstants.baseUrl}$thumbnailUrl';
+        }
       }
 
       final index = originalUrls.length;
@@ -353,7 +357,9 @@ class DiscourseImageUtils {
 
   /// 将相对路径转换为绝对路径
   static String resolveUrl(String url) {
-    if (url.startsWith('/') && !url.startsWith('//')) {
+    if (url.startsWith('//')) {
+      return 'https:$url';
+    } else if (url.startsWith('/')) {
       return '${AppConstants.baseUrl}$url';
     }
     return url;
