@@ -228,8 +228,10 @@ class _DiscourseHtmlContentState extends ConsumerState<DiscourseHtmlContent> {
       (match) {
         final attr = match.group(1)!;
         final path = match.group(2)!;
-        // 只处理以 / 开头的相对路径，排除协议相对路径 //
-        if (path.startsWith('//')) return match.group(0)!;
+        // 处理协议相对路径 //
+        if (path.startsWith('//')) {
+          return '$attr="https:$path"';
+        }
         return '$attr="${AppConstants.baseUrl}$path"';
       },
     );
@@ -887,7 +889,9 @@ class _DiscourseHtmlContentState extends ConsumerState<DiscourseHtmlContent> {
       final href = anchor.attributes['href'] as String?;
       if (href != null && href.isNotEmpty) {
         var url = href;
-        if (url.startsWith('/') && !url.startsWith('//')) {
+        if (url.startsWith('//')) {
+          url = 'https:$url';
+        } else if (url.startsWith('/')) {
           url = '${AppConstants.baseUrl}$url';
         }
         _revealedImageUrls.add(url);
