@@ -5,8 +5,8 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    id("com.google.gms.google-services") apply false
-    id("com.google.firebase.crashlytics") apply false
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 // 读取签名配置
@@ -14,15 +14,6 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
-}
-val hasReleaseSigning = listOf("keyAlias", "keyPassword", "storeFile", "storePassword")
-    .all { !keystoreProperties.getProperty(it).isNullOrBlank() }
-val googleServicesFile = file("google-services.json")
-val hasGoogleServices = googleServicesFile.exists()
-
-if (hasGoogleServices) {
-    apply(plugin = "com.google.gms.google-services")
-    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 android {
@@ -62,11 +53,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -101,9 +88,6 @@ android {
         }
     }
 }
-
-println("Has release signing: $hasReleaseSigning")
-println("Has google-services.json: $hasGoogleServices")
 
 flutter {
     source = "../.."

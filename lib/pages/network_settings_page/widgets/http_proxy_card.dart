@@ -155,9 +155,7 @@ class HttpProxyCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            proxySettings.isShadowsocks
-                                ? 'Shadowsocks 模式下会自动切换为纯代理转发，不走 DoH MITM'
-                                : '当前会通过本地 DoH 网关转发到上游代理；关闭 DoH 时会切换为纯代理转发',
+                            '当前会通过本地 DoH 网关转发到上游代理；关闭 DoH 时会切换为纯代理转发',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),

@@ -274,15 +274,14 @@ class NetworkSettingsService {
 
     try {
       final upstream = _proxyService.current;
-      final effectiveEnableDoh =
-          current.dohEnabled && !(upstream.isValid && upstream.isShadowsocks);
 
-      // 启动 Rust 代理（内部处理 DOH + ECH）
+      // 启动 Rust 代理（内部处理 DOH + ECH + 上游代理）
+      // DOH + Shadowsocks 共存时，DOH 查询走直连，实际连接走 SS
       final success = await _rustProxyService.start(
         preferredPort: current.proxyPort ?? 0,
-        enableDoh: effectiveEnableDoh,
+        enableDoh: current.dohEnabled,
         preferIPv6: current.preferIPv6,
-        dohServer: effectiveEnableDoh ? current.selectedServerUrl : null,
+        dohServer: current.dohEnabled ? current.selectedServerUrl : null,
         upstreamProtocol: upstream.isValid ? upstream.protocol.storageValue : null,
         upstreamHost: upstream.isValid ? upstream.host : null,
         upstreamPort: upstream.isValid ? upstream.port : null,

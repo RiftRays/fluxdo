@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -117,9 +116,7 @@ AdapterType _resolveAndroidAdapterType(
   ProxySettingsService proxySettings,
   CronetFallbackService fallbackService,
 ) {
-  if (proxySettings.current.isValid) {
-    return AdapterType.webview;
-  }
+  // 代理或 DOH 启用时使用 NetworkHttpAdapter（通过本地 Rust 网关转发）
   if (settings.shouldRunLocalProxy || fallbackService.hasFallenBack) {
     return AdapterType.network;
   }
@@ -174,14 +171,7 @@ class _AndroidDynamicAdapter implements HttpClientAdapter {
     }
 
     _delegate?.close(force: true);
-    if (desiredType == AdapterType.webview) {
-      final adapter = WebViewHttpAdapter();
-      adapter.initialize().catchError((e) {
-        debugPrint('[DIO] Android dynamic adapter -> WebViewHttpAdapter init failed: $e');
-      });
-      _delegate = adapter;
-      debugPrint('[DIO] Android dynamic adapter -> WebViewHttpAdapter');
-    } else if (desiredType == AdapterType.network) {
+    if (desiredType == AdapterType.network) {
       _delegate = NetworkHttpAdapter(_settings, _proxySettings);
       debugPrint('[DIO] Android dynamic adapter -> NetworkHttpAdapter');
     } else {

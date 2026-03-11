@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -249,12 +248,6 @@ class ProxySettingsService {
     _touch();
   }
 
-  /// 关闭代理（供外部调用，如 DOH 启用时）
-  Future<void> disable() async {
-    if (!current.enabled) return;
-    await setEnabled(false);
-  }
-
   Future<ProxyTestResult> testCurrentAvailability() {
     return testAvailability(current);
   }
@@ -331,7 +324,6 @@ class ProxySettingsService {
     final stopwatch = Stopwatch()..start();
     Socket? socket;
     SecureSocket? secureSocket;
-    bool tunnelEstablished = false;
 
     try {
       socket = await Socket.connect(
@@ -361,8 +353,6 @@ class ProxySettingsService {
         case UpstreamProxyProtocol.shadowsocks:
           break;
       }
-      tunnelEstablished = true;
-
       secureSocket = await SecureSocket.secure(
         socket,
         host: targetUri.host,
@@ -396,16 +386,6 @@ class ProxySettingsService {
       );
     } on TlsException catch (error) {
       stopwatch.stop();
-      if (tunnelEstablished && Platform.isAndroid) {
-        return ProxyTestResult(
-          success: true,
-          summary: '代理基础连通性正常',
-          detail: '已完成代理连接、认证和隧道建立；Android 当前实际走 WebView 网络栈，通常不影响访问',
-          targetUrl: targetUri.toString(),
-          testedAt: DateTime.now(),
-          latency: stopwatch.elapsed,
-        );
-      }
       return ProxyTestResult(
         success: false,
         summary: 'TLS 握手失败',
@@ -496,7 +476,7 @@ class ProxySettingsService {
       }
       throw HttpException('HTTP 代理 CONNECT 失败：$statusLine');
     } finally {
-      await reader.cancel();
+      reader.pause();
     }
   }
 
@@ -590,7 +570,7 @@ class ProxySettingsService {
       }
       await reader.readExact(remainLength, timeout);
     } finally {
-      await reader.cancel();
+      reader.pause();
     }
   }
 
@@ -687,7 +667,7 @@ class ProxySettingsService {
       return 'Shadowsocks 2022 密钥必须是有效的 Base64 字符串';
     }
     if (decodedKey.length != requiredKeyLength) {
-      return 'Shadowsocks 2022 密钥长度无效：解码后必须为 ${requiredKeyLength} 字节';
+      return 'Shadowsocks 2022 密钥长度无效：解码后必须为 $requiredKeyLength 字节';
     }
     return null;
   }
@@ -748,6 +728,11 @@ class _SocketByteReader {
 
   Future<Uint8List> readUntilHeaderEnd(Duration timeout) {
     return _readUntilSequence(const [13, 10, 13, 10], timeout);
+  }
+
+  /// 暂停订阅，保留流的可监听状态（供 SecureSocket.secure 接管）
+  void pause() {
+    _subscription.pause();
   }
 
   Future<void> cancel() async {
