@@ -120,85 +120,89 @@ class _BookmarksPageState extends ConsumerState<BookmarksPage> {
     );
   }
 
-  bool _hasBookmarkMeta(Topic topic) {
-    return topic.bookmarkName != null ||
+  /// 是否有书签底部附属信息
+  bool _hasBookmarkBottom(Topic topic) {
+    return (topic.bookmarkName != null && topic.bookmarkName!.isNotEmpty) ||
         topic.bookmarkReminderAt != null ||
-        topic.bookmarkableType != null;
+        (topic.excerpt != null && topic.excerpt!.isNotEmpty);
   }
 
-  Widget _buildBookmarkMeta(BuildContext context, Topic topic) {
-    final theme = Theme.of(context);
+  /// 卡片底部：书签元信息 + 摘要
+  Widget _buildBookmarkBottom(BuildContext context, Topic topic) {
+    final colorScheme = Theme.of(context).colorScheme;
     final isExpired = topic.bookmarkReminderAt != null &&
         topic.bookmarkReminderAt!.isBefore(DateTime.now());
+    final hasName = topic.bookmarkName != null && topic.bookmarkName!.isNotEmpty;
+    final hasReminder = topic.bookmarkReminderAt != null;
+    final hasExcerpt = topic.excerpt != null && topic.excerpt!.isNotEmpty;
+    final hasMeta = hasName || hasReminder;
 
-    return Wrap(
-      spacing: 6,
-      runSpacing: 4,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 书签类型标识
-        if (topic.bookmarkableType != null)
-          _buildMetaTag(
-            theme,
-            icon: topic.bookmarkableType == 'Post'
-                ? Icons.comment_outlined
-                : Icons.topic_outlined,
-            text: topic.bookmarkableType == 'Post' ? '帖子书签' : '话题书签',
+        // 元信息行：书签名称、提醒时间
+        if (hasMeta)
+          Text.rich(
+            TextSpan(
+              children: [
+                // 书签名称
+                if (hasName) ...[
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Icon(Icons.bookmark_outlined, size: 12,
+                        color: colorScheme.onSurfaceVariant),
+                  ),
+                  TextSpan(text: ' ${topic.bookmarkName!}'),
+                ],
+                // 提醒时间
+                if (hasReminder) ...[
+                  if (hasName)
+                    TextSpan(
+                      text: ' · ',
+                      style: TextStyle(
+                          color: colorScheme.onSurfaceVariant
+                              .withValues(alpha: 0.4)),
+                    ),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Icon(Icons.alarm, size: 12,
+                        color: isExpired
+                            ? colorScheme.error
+                            : colorScheme.onSurfaceVariant),
+                  ),
+                  TextSpan(
+                    text: isExpired
+                        ? ' 已过期'
+                        : ' ${TimeUtils.formatDetailTime(topic.bookmarkReminderAt!)}',
+                    style: isExpired
+                        ? TextStyle(color: colorScheme.error)
+                        : null,
+                  ),
+                ],
+              ],
+            ),
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+              height: 1.4,
+            ),
           ),
-        // 书签名称
-        if (topic.bookmarkName != null && topic.bookmarkName!.isNotEmpty)
-          _buildMetaTag(
-            theme,
-            icon: Icons.label_outline,
-            text: topic.bookmarkName!,
-          ),
-        // 提醒时间
-        if (topic.bookmarkReminderAt != null)
-          _buildMetaTag(
-            theme,
-            icon: Icons.alarm,
-            text: isExpired
-                ? '提醒已过期'
-                : TimeUtils.formatDetailTime(topic.bookmarkReminderAt!),
-            isError: isExpired,
-          ),
-      ],
-    );
-  }
-
-  Widget _buildMetaTag(
-    ThemeData theme, {
-    required IconData icon,
-    required String text,
-    bool isError = false,
-  }) {
-    final bgColor = isError
-        ? theme.colorScheme.errorContainer.withValues(alpha: 0.5)
-        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6);
-    final fgColor = isError
-        ? theme.colorScheme.error
-        : theme.colorScheme.onSurfaceVariant;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 11, color: fgColor),
-          const SizedBox(width: 3),
-          Flexible(
+        // 摘要
+        if (hasExcerpt)
+          Padding(
+            padding: EdgeInsets.only(top: hasMeta ? 4 : 0),
             child: Text(
-              text,
-              style: TextStyle(fontSize: 11, color: fgColor, height: 1.3),
-              maxLines: 1,
+              topic.excerpt!,
+              style: TextStyle(
+                fontSize: 12,
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                height: 1.4,
+              ),
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -363,8 +367,8 @@ class _BookmarksPageState extends ConsumerState<BookmarksPage> {
                 isSelected: false,
                 onTap: () => _onItemTap(topic),
                 enableLongPress: enableLongPress,
-                bottomWidget: _hasBookmarkMeta(topic)
-                    ? _buildBookmarkMeta(context, topic)
+                bottomWidget: _hasBookmarkBottom(topic)
+                    ? _buildBookmarkBottom(context, topic)
                     : null,
                 previewActions: topic.bookmarkId != null
                     ? _buildPreviewActions(topic)
